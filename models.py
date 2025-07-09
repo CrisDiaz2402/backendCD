@@ -23,6 +23,12 @@ class Usuario(Base):
     email = Column(String, unique=True, index=True)
     telefono = Column(String)
     presupuesto_diario = Column(Float, default=0.0)
+    
+    # Campos de autenticación
+    password_hash = Column(String, nullable=False)  # Contraseña hasheada
+    is_active = Column(Boolean, default=True)       # Usuario activo/inactivo
+    last_login = Column(DateTime, nullable=True)    # Último login
+    
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

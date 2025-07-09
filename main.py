@@ -1,6 +1,7 @@
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, status
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 from typing import List, Optional
 
@@ -12,7 +13,7 @@ from models import (
 )
 from schemas import (
     GastoCreate, GastoUpdate, Gasto as GastoSchema,
-    UsuarioCreate, Usuario as UsuarioSchema,
+    UsuarioCreate, UsuarioResponse, UsuarioLogin, Token,
     PatronGasto as PatronGastoSchema,
     TransportePredefinidoCreate, TransportePredefinido as TransportePredefinidoSchema,
     AnalisisRequest, AnalisisResponse, RecomendacionML, AnomaliaDetectada,
@@ -22,6 +23,10 @@ from ml_services import clasificador_gastos, detector_anomalias, analizador_patr
 from ml_utils import (
     procesar_gasto_para_ml, calcular_estadisticas_usuario, 
     validar_gasto_anomalo, crear_directorio_modelos
+)
+from auth import (
+    authenticate_user, create_access_token, create_user,
+    get_current_active_user, ACCESS_TOKEN_EXPIRE_MINUTES
 )
 
 # Crear tablas
@@ -45,24 +50,79 @@ def get_db():
         db.close()
 
 # ========================
-# ENDPOINTS DE USUARIOS
+# ENDPOINTS DE AUTENTICACIÓN
 # ========================
 
-@app.post("/usuarios/", response_model=UsuarioSchema)
-def crear_usuario(usuario: UsuarioCreate, db: Session = Depends(get_db)):
-    """Crear un nuevo usuario"""
+@app.post("/auth/register", response_model=UsuarioResponse)
+def registrar_usuario(usuario: UsuarioCreate, db: Session = Depends(get_db)):
+    """Registrar un nuevo usuario"""
     # Verificar si el email ya existe
     db_usuario = db.query(Usuario).filter(Usuario.email == usuario.email).first()
     if db_usuario:
-        raise HTTPException(status_code=400, detail="Email ya registrado")
+        raise HTTPException(
+            status_code=400, 
+            detail="El email ya está registrado"
+        )
     
-    db_usuario = Usuario(**usuario.dict())
-    db.add(db_usuario)
-    db.commit()
-    db.refresh(db_usuario)
+    # Crear usuario con contraseña hasheada
+    db_usuario = create_user(db, usuario.dict())
     return db_usuario
 
-@app.get("/usuarios/{usuario_id}", response_model=UsuarioSchema)
+@app.post("/auth/login", response_model=Token)
+def login_usuario(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    """Login de usuario y generación de token"""
+    user = authenticate_user(db, form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Email o contraseña incorrectos",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.email}, expires_delta=access_token_expires
+    )
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user_id": user.id,
+        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    }
+
+@app.post("/auth/login-json", response_model=Token)
+def login_usuario_json(usuario_login: UsuarioLogin, db: Session = Depends(get_db)):
+    """Login de usuario con JSON (para apps móviles)"""
+    user = authenticate_user(db, usuario_login.email, usuario_login.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Email o contraseña incorrectos"
+        )
+    
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.email}, expires_delta=access_token_expires
+    )
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user_id": user.id,
+        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    }
+
+@app.get("/auth/me", response_model=UsuarioResponse)
+def obtener_usuario_actual(current_user: Usuario = Depends(get_current_active_user)):
+    """Obtener información del usuario autenticado"""
+    return current_user
+
+# ========================
+# ENDPOINTS DE USUARIOS (LEGACY - Para compatibilidad)
+# ========================
+
+@app.get("/usuarios/{usuario_id}", response_model=UsuarioResponse)
 def obtener_usuario(usuario_id: int, db: Session = Depends(get_db)):
     """Obtener usuario por ID"""
     usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
@@ -70,7 +130,7 @@ def obtener_usuario(usuario_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     return usuario
 
-@app.get("/usuarios/", response_model=List[UsuarioSchema])
+@app.get("/usuarios/", response_model=List[UsuarioResponse])
 def listar_usuarios(db: Session = Depends(get_db)):
     """Listar todos los usuarios"""
     return db.query(Usuario).all()

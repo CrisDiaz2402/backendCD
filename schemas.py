@@ -12,12 +12,41 @@ class UsuarioBase(BaseModel):
     presupuesto_diario: Optional[float] = 0.0
 
 class UsuarioCreate(UsuarioBase):
-    pass
+    password: str  # Contraseña en texto plano (se hasheará)
+    
+    @validator('password')
+    def validar_password(cls, v):
+        if len(v) < 6:
+            raise ValueError('La contraseña debe tener al menos 6 caracteres')
+        return v
 
-class Usuario(UsuarioBase):
+class UsuarioLogin(BaseModel):
+    email: str
+    password: str
+
+class UsuarioResponse(UsuarioBase):
     id: int
+    is_active: bool
+    last_login: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+# Para compatibilidad con código existente
+class Usuario(UsuarioResponse):
+    pass
+
+# Esquemas de autenticación
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+    user_id: int
+    expires_in: int
+
+class TokenData(BaseModel):
+    email: Optional[str] = None
     
     class Config:
         from_attributes = True

@@ -7,10 +7,10 @@ import random
 from datetime import datetime, timedelta
 
 # Para desarrollo local
-BASE_URL = "http://localhost:8000"
+# BASE_URL = "http://localhost:8000"
 
 # Para producción (usar esta URL en tu app móvil)
-# BASE_URL = "https://tu-dominio-render.com"
+BASE_URL = "https://backendcd.onrender.com"
 headers = {"Content-Type": "application/json"}
 
 def crear_gastos_entrenamiento(usuario_id):
