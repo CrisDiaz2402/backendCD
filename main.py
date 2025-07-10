@@ -322,6 +322,144 @@ def eliminar_gasto(gasto_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"mensaje": "Gasto eliminado correctamente"}
 
+@app.get("/gastos/usuario/{usuario_id}/categoria/{categoria}", response_model=List[GastoSchema])
+def obtener_gastos_usuario_por_categoria(
+    usuario_id: int, 
+    categoria: CategoriaGasto,
+    limite: int = 100,
+    fecha_desde: Optional[datetime] = None,
+    fecha_hasta: Optional[datetime] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Obtener todos los gastos de un usuario específico filtrados por categoría
+    
+    Args:
+        usuario_id: ID del usuario
+        categoria: Categoría de gastos a filtrar (COMIDA, TRANSPORTE, VARIOS)
+        limite: Número máximo de gastos a retornar (default: 100)
+        fecha_desde: Fecha inicial para filtrar (opcional)
+        fecha_hasta: Fecha final para filtrar (opcional)
+    
+    Returns:
+        Lista de gastos del usuario en la categoría especificada
+    """
+    
+    # Verificar que el usuario existe
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    
+    # Construir query base
+    query = db.query(Gasto).filter(
+        Gasto.usuario_id == usuario_id,
+        Gasto.categoria == categoria
+    )
+    
+    # Aplicar filtros de fecha si se proporcionan
+    if fecha_desde:
+        query = query.filter(Gasto.fecha >= fecha_desde)
+    if fecha_hasta:
+        query = query.filter(Gasto.fecha <= fecha_hasta)
+    
+    # Obtener gastos ordenados por fecha descendente
+    gastos = query.order_by(Gasto.fecha.desc()).limit(limite).all()
+    
+    return gastos
+
+@app.get("/gastos/usuario/{usuario_id}/categoria/{categoria}/estadisticas")
+def obtener_estadisticas_gastos_por_categoria(
+    usuario_id: int,
+    categoria: CategoriaGasto,
+    dias: int = 30,
+    db: Session = Depends(get_db)
+):
+    """
+    Obtener estadísticas de gastos de un usuario en una categoría específica
+    
+    Args:
+        usuario_id: ID del usuario
+        categoria: Categoría de gastos a analizar
+        dias: Número de días hacia atrás para el análisis (default: 30)
+    
+    Returns:
+        Estadísticas detalladas de gastos en la categoría
+    """
+    
+    # Verificar que el usuario existe
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    
+    # Calcular fecha límite
+    fecha_limite = datetime.now() - timedelta(days=dias)
+    
+    # Obtener gastos de la categoría en el período
+    gastos = db.query(Gasto).filter(
+        Gasto.usuario_id == usuario_id,
+        Gasto.categoria == categoria,
+        Gasto.fecha >= fecha_limite
+    ).all()
+    
+    if not gastos:
+        return {
+            "usuario_id": usuario_id,
+            "categoria": categoria.value,
+            "periodo_dias": dias,
+            "total_gastos": 0,
+            "monto_total": 0.0,
+            "monto_promedio": 0.0,
+            "monto_minimo": 0.0,
+            "monto_maximo": 0.0,
+            "gastos_por_dia": 0.0,
+            "gastos": []
+        }
+    
+    # Calcular estadísticas
+    montos = [gasto.monto for gasto in gastos]
+    total_gastos = len(gastos)
+    monto_total = sum(montos)
+    monto_promedio = monto_total / total_gastos
+    monto_minimo = min(montos)
+    monto_maximo = max(montos)
+    gastos_por_dia = total_gastos / dias
+    
+    # Agrupar gastos por día para análisis temporal
+    gastos_por_fecha = {}
+    for gasto in gastos:
+        fecha_str = gasto.fecha.strftime("%Y-%m-%d")
+        if fecha_str not in gastos_por_fecha:
+            gastos_por_fecha[fecha_str] = []
+        gastos_por_fecha[fecha_str].append({
+            "id": gasto.id,
+            "descripcion": gasto.descripcion,
+            "monto": gasto.monto,
+            "hora": gasto.fecha.strftime("%H:%M")
+        })
+    
+    return {
+        "usuario_id": usuario_id,
+        "categoria": categoria.value,
+        "periodo_dias": dias,
+        "total_gastos": total_gastos,
+        "monto_total": round(monto_total, 2),
+        "monto_promedio": round(monto_promedio, 2),
+        "monto_minimo": round(monto_minimo, 2),
+        "monto_maximo": round(monto_maximo, 2),
+        "gastos_por_dia": round(gastos_por_dia, 2),
+        "gastos_por_fecha": gastos_por_fecha,
+        "gastos": [
+            {
+                "id": gasto.id,
+                "descripcion": gasto.descripcion,
+                "monto": gasto.monto,
+                "fecha": gasto.fecha,
+                "confianza_categoria": gasto.confianza_categoria
+            }
+            for gasto in gastos
+        ]
+    }
+
 # ========================
 # ENDPOINTS DE MACHINE LEARNING
 # ========================
