@@ -1,2 +1,63 @@
+# Variables de entorno
 .env
+.env.local
+.env.production
+
+# Entornos virtuales
 env/
+venv/
+ENV/
+.venv/
+.qodo/
+# Python cache y archivos compilados
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Archivos de distribución / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Archivos de testing
+.coverage
+.pytest_cache/
+.tox/
+.nox/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# IDEs
+.vscode/
+.idea/
+*.sublime-*
+
+# Logs
+*.log
+logs/
+
+# Modelos ML (ya no los usamos)
+models/
+*.pkl
+*.joblib
