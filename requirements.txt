@@ -3,15 +3,7 @@ uvicorn
 sqlalchemy
 psycopg2-binary
 pydantic
-scikit-learn
-pandas
-numpy
-nltk
-textblob
-joblib
 python-multipart
 python-jose[cryptography]
 passlib[bcrypt]
-celery
-redis
 python-dotenv
