@@ -106,7 +106,8 @@ def create_user(db: Session, user_data: dict) -> Usuario:
         nombre=user_data["nombre"],
         email=user_data["email"],
         telefono=user_data.get("telefono"),
-        presupuesto_diario=user_data.get("presupuesto_diario", 0.0),
+        presupuesto=user_data.get("presupuesto"),
+        periodo_presupuesto=user_data.get("periodo_presupuesto"),
         password_hash=hashed_password,
         is_active=True
     )

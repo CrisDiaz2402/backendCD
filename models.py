@@ -9,14 +9,20 @@ class CategoriaGasto(enum.Enum):
     TRANSPORTE = "transporte"
     VARIOS = "varios"
 
+class PeriodoPresupuesto(enum.Enum):
+    DIARIO = "diario"
+    SEMANAL = "semanal"
+    MENSUAL = "mensual"
+
 class Usuario(Base):
     __tablename__ = "usuarios"
     
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String, index=True)
     email = Column(String, unique=True, index=True)
-    telefono = Column(String)
-    presupuesto_diario = Column(Float, default=0.0)
+    telefono = Column(String, nullable=True)  # Opcional
+    presupuesto = Column(Float, nullable=True, default=None)  # Opcional
+    periodo_presupuesto = Column(Enum(PeriodoPresupuesto), nullable=True, default=None)  # Opcional
     
     # Campos de autenticación
     password_hash = Column(String, nullable=False)  # Contraseña hasheada

@@ -10,7 +10,7 @@ from database import SessionLocal, engine, Base
 from models import Gasto, Usuario, CategoriaGasto
 from schemas import (
     GastoCreate, GastoUpdate, Gasto as GastoSchema,
-    UsuarioCreate, UsuarioResponse, UsuarioLogin, Token,
+    UsuarioCreate, UsuarioResponse, UsuarioLogin, UsuarioUpdate, Token, TokenWithUser,
     EliminacionResponse, EliminacionCategoriaResponse, EliminacionTotalResponse
 )
 from auth import (
@@ -77,15 +77,20 @@ def login_usuario(form_data: OAuth2PasswordRequestForm = Depends(), db: Session 
         "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60
     }
 
-@app.post("/auth/login-json", response_model=Token)
+@app.post("/auth/login-json", response_model=TokenWithUser)
 def login_usuario_json(usuario_login: UsuarioLogin, db: Session = Depends(get_db)):
-    """Login de usuario con JSON (para apps móviles)"""
+    """Login de usuario con JSON (para apps móviles) - Devuelve token + información del usuario"""
     user = authenticate_user(db, usuario_login.email, usuario_login.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Email o contraseña incorrectos"
         )
+    
+    # Actualizar último login
+    user.last_login = datetime.now()
+    db.commit()
+    db.refresh(user)
     
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
@@ -96,12 +101,37 @@ def login_usuario_json(usuario_login: UsuarioLogin, db: Session = Depends(get_db
         "access_token": access_token,
         "token_type": "bearer",
         "user_id": user.id,
-        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        "user": user
     }
 
 @app.get("/auth/me", response_model=UsuarioResponse)
 def obtener_usuario_actual(current_user: Usuario = Depends(get_current_active_user)):
     """Obtener información del usuario autenticado"""
+    return current_user
+
+@app.patch("/auth/me", response_model=UsuarioResponse)
+def actualizar_perfil_usuario(
+    usuario_update: UsuarioUpdate,
+    current_user: Usuario = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Actualizar perfil del usuario autenticado (PATCH - solo campos enviados)"""
+    
+    # Actualizar solo los campos proporcionados (exclude_unset=True)
+    update_data = usuario_update.dict(exclude_unset=True)
+    
+    for field, value in update_data.items():
+        if value is not None:
+            setattr(current_user, field, value)
+    
+    # Actualizar timestamp
+    current_user.updated_at = datetime.now()
+    
+    # Guardar cambios
+    db.commit()
+    db.refresh(current_user)
+    
     return current_user
 
 # ========================
@@ -596,6 +626,95 @@ def eliminar_todos_gastos_usuario(
         "fecha_eliminacion": datetime.now().isoformat(),
         "advertencia": "Esta acción no se puede deshacer"
     }
+
+@app.get("/usuarios/{usuario_id}/gastos", response_model=List[GastoSchema])
+def obtener_gastos_usuario(
+    usuario_id: int,
+    limite: int = 100,
+    offset: int = 0,
+    categoria: Optional[CategoriaGasto] = None,
+    fecha_desde: Optional[str] = None,
+    fecha_hasta: Optional[str] = None,
+    current_user: Usuario = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Obtener todos los gastos de un usuario específico con filtros opcionales"""
+    
+    # Verificar que el usuario está accediendo a sus propios gastos
+    if current_user.id != usuario_id:
+        raise HTTPException(
+            status_code=403, 
+            detail="Solo puedes acceder a tus propios gastos"
+        )
+    
+    # Verificar que el usuario existe
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    
+    # Construir query base
+    query = db.query(Gasto).filter(Gasto.usuario_id == usuario_id)
+    
+    # Aplicar filtros opcionales
+    if categoria:
+        query = query.filter(Gasto.categoria == categoria)
+    
+    if fecha_desde:
+        try:
+            fecha_desde_dt = datetime.fromisoformat(fecha_desde.replace('Z', '+00:00'))
+            query = query.filter(Gasto.fecha >= fecha_desde_dt)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Formato de fecha_desde inválido. Use ISO format")
+    
+    if fecha_hasta:
+        try:
+            fecha_hasta_dt = datetime.fromisoformat(fecha_hasta.replace('Z', '+00:00'))
+            query = query.filter(Gasto.fecha <= fecha_hasta_dt)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Formato de fecha_hasta inválido. Use ISO format")
+    
+    # Ordenar por fecha descendente y aplicar límites
+    gastos = query.order_by(Gasto.fecha.desc()).offset(offset).limit(limite).all()
+    
+    return gastos
+
+@app.get("/auth/me/gastos", response_model=List[GastoSchema])
+def obtener_mis_gastos(
+    limite: int = 100,
+    offset: int = 0,
+    categoria: Optional[CategoriaGasto] = None,
+    fecha_desde: Optional[str] = None,
+    fecha_hasta: Optional[str] = None,
+    current_user: Usuario = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Obtener todos los gastos del usuario autenticado con filtros opcionales"""
+    
+    # Construir query base
+    query = db.query(Gasto).filter(Gasto.usuario_id == current_user.id)
+    
+    # Aplicar filtros opcionales
+    if categoria:
+        query = query.filter(Gasto.categoria == categoria)
+    
+    if fecha_desde:
+        try:
+            fecha_desde_dt = datetime.fromisoformat(fecha_desde.replace('Z', '+00:00'))
+            query = query.filter(Gasto.fecha >= fecha_desde_dt)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Formato de fecha_desde inválido. Use ISO format")
+    
+    if fecha_hasta:
+        try:
+            fecha_hasta_dt = datetime.fromisoformat(fecha_hasta.replace('Z', '+00:00'))
+            query = query.filter(Gasto.fecha <= fecha_hasta_dt)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Formato de fecha_hasta inválido. Use ISO format")
+    
+    # Ordenar por fecha descendente y aplicar límites
+    gastos = query.order_by(Gasto.fecha.desc()).offset(offset).limit(limite).all()
+    
+    return gastos
 
 if __name__ == "__main__":
     import uvicorn

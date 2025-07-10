@@ -1,23 +1,58 @@
 from pydantic import BaseModel, validator
 from typing import Optional, List
 from datetime import datetime
-from models import CategoriaGasto
+from models import CategoriaGasto, PeriodoPresupuesto
 import enum
+import re
 
 # Esquemas base
 class UsuarioBase(BaseModel):
     nombre: str
     email: str
     telefono: Optional[str] = None
-    presupuesto_diario: Optional[float] = 0.0
+    presupuesto: Optional[float] = None
+    periodo_presupuesto: Optional[PeriodoPresupuesto] = None
 
-class UsuarioCreate(UsuarioBase):
-    password: str  # Contraseña en texto plano (se hasheará)
+class UsuarioCreate(BaseModel):
+    nombre: str
+    email: str
+    password: str  # Solo campos obligatorios para registro
     
     @validator('password')
     def validar_password(cls, v):
         if len(v) < 6:
             raise ValueError('La contraseña debe tener al menos 6 caracteres')
+        return v
+    
+    @validator('email')
+    def validar_email(cls, v):
+        email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_regex, v):
+            raise ValueError('Email no válido')
+        return v.lower()
+
+class UsuarioUpdate(BaseModel):
+    nombre: Optional[str] = None
+    telefono: Optional[str] = None
+    presupuesto: Optional[float] = None
+    periodo_presupuesto: Optional[PeriodoPresupuesto] = None
+    
+    @validator('telefono')
+    def validar_telefono(cls, v):
+        if v is not None:
+            # Eliminar espacios y caracteres no numéricos
+            telefono_limpio = re.sub(r'[^\d]', '', v)
+            if len(telefono_limpio) != 10:
+                raise ValueError('El teléfono debe tener exactamente 10 dígitos')
+            if not telefono_limpio.isdigit():
+                raise ValueError('El teléfono debe contener solo números')
+            return telefono_limpio
+        return v
+    
+    @validator('presupuesto')
+    def validar_presupuesto_positivo(cls, v):
+        if v is not None and v < 0:
+            raise ValueError('El presupuesto debe ser positivo o cero')
         return v
 
 class UsuarioLogin(BaseModel):
@@ -44,6 +79,13 @@ class Token(BaseModel):
     token_type: str
     user_id: int
     expires_in: int
+
+class TokenWithUser(BaseModel):
+    access_token: str
+    token_type: str
+    user_id: int
+    expires_in: int
+    user: UsuarioResponse
 
 class TokenData(BaseModel):
     email: Optional[str] = None
