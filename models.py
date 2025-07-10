@@ -45,7 +45,6 @@ class Gasto(Base):
     descripcion = Column(String, index=True)
     monto = Column(Float, index=True)
     categoria = Column(Enum(CategoriaGasto), index=True)
-    subcategoria = Column(String, index=True)
     fecha = Column(DateTime, default=datetime.utcnow, index=True)
     
     # Campos para Machine Learning
@@ -54,8 +53,6 @@ class Gasto(Base):
     hora_gasto = Column(Integer, index=True)  # 0-23
     es_fin_semana = Column(Boolean, default=False, index=True)
     patron_temporal = Column(String)  # "mañana", "tarde", "noche"
-    ubicacion = Column(String, nullable=True)  # GPS opcional
-    metodo_pago = Column(String, nullable=True)  # "efectivo", "tarjeta", "digital"
     frecuencia_descripcion = Column(Integer, default=1)  # Frecuencia de esta descripción
     distancia_promedio_gastos = Column(Float, default=0.0)  # Para análisis geográfico
     es_recurrente = Column(Boolean, default=False, index=True)

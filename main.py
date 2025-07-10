@@ -140,51 +140,133 @@ def listar_usuarios(db: Session = Depends(get_db)):
 # ========================
 
 @app.post("/gastos/", response_model=GastoSchema)
-def crear_gasto(gasto: GastoCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    """Crear un nuevo gasto con procesamiento ML"""
+def crear_gasto(
+    gasto: Optional[GastoCreate] = None,
+    # Parámetros simples para frontend
+    descripcion: Optional[str] = None,
+    monto: Optional[float] = None,
+    categoria: Optional[CategoriaGasto] = None,
+    usuario_id: Optional[int] = None,
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    db: Session = Depends(get_db)
+):
+    """
+    Crear un nuevo gasto - Acepta tanto objeto GastoCreate como parámetros individuales
+    Uso desde frontend: POST /gastos/ con parámetros form-data o query params
+    Uso desde API: POST /gastos/ con JSON body
+    """
+    
+    # Determinar origen de datos
+    if gasto:
+        # Datos desde objeto GastoCreate (uso API)
+        gasto_data = gasto.dict()
+        usar_ml_completo = True
+    elif descripcion and monto is not None and categoria and usuario_id:
+        # Datos desde parámetros individuales (uso frontend)
+        gasto_data = {
+            "descripcion": descripcion,
+            "monto": monto,
+            "categoria": categoria,
+            "usuario_id": usuario_id
+        }
+        usar_ml_completo = False
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Debe proporcionar un objeto GastoCreate o los parámetros: descripcion, monto, categoria, usuario_id"
+        )
+    
+    # Validaciones básicas
+    if gasto_data["monto"] <= 0:
+        raise HTTPException(status_code=400, detail="El monto debe ser positivo")
+    
+    if not gasto_data["descripcion"] or not gasto_data["descripcion"].strip():
+        raise HTTPException(status_code=400, detail="La descripción no puede estar vacía")
+    
     # Verificar que el usuario existe
-    usuario = db.query(Usuario).filter(Usuario.id == gasto.usuario_id).first()
+    usuario = db.query(Usuario).filter(Usuario.id == gasto_data["usuario_id"]).first()
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     
-    # Procesar gasto para ML
-    gasto_data = gasto.dict()
-    gasto_data['fecha'] = datetime.now()
-    gasto_procesado = procesar_gasto_para_ml(gasto_data, db, gasto.usuario_id)
+    # Obtener fecha actual
+    fecha_actual = datetime.now()
+    gasto_data['fecha'] = fecha_actual
     
-    # Predecir categoría si no se proporciona
-    if not gasto.categoria and clasificador_gastos.modelo_entrenado:
-        categoria_pred, confianza = clasificador_gastos.predecir_categoria(
-            gasto.descripcion, gasto.monto, 
-            gasto_procesado['dia_semana'], gasto_procesado['hora_gasto']
+    # Funciones auxiliares para procesamiento básico
+    def obtener_patron_temporal(hora: int) -> str:
+        if 6 <= hora < 12:
+            return "mañana"
+        elif 12 <= hora < 18:
+            return "tarde"
+        else:
+            return "noche"
+    
+    def calcular_confianza_inicial(descripcion: str, categoria: CategoriaGasto) -> float:
+        desc_lower = descripcion.lower().strip()
+        
+        if categoria == CategoriaGasto.TRANSPORTE:
+            if any(word in desc_lower for word in ["uber", "taxi", "bus", "metro", "transporte"]):
+                return 0.9
+        elif categoria == CategoriaGasto.COMIDA:
+            if any(word in desc_lower for word in ["comida", "restaurante", "almuerzo", "cena", "desayuno"]):
+                return 0.9
+        elif categoria == CategoriaGasto.VARIOS:
+            return 0.7
+        
+        return 0.5
+    
+    # Procesar según el tipo de uso
+    if usar_ml_completo:
+        # Procesamiento ML completo para uso API
+        gasto_procesado = procesar_gasto_para_ml(gasto_data, db, gasto_data["usuario_id"])
+        
+        # La categoría ya viene del frontend, no necesitamos predicción
+        gasto_procesado['categoria'] = gasto_data["categoria"]
+        gasto_procesado['confianza_categoria'] = calcular_confianza_inicial(
+            gasto_data["descripcion"], gasto_data["categoria"]
         )
-        gasto_procesado['categoria'] = CategoriaGasto(categoria_pred)
-        gasto_procesado['confianza_categoria'] = confianza
+        
+        # Crear gasto con procesamiento ML completo
+        db_gasto = Gasto(
+            usuario_id=gasto_data["usuario_id"],
+            descripcion=gasto_data["descripcion"],
+            monto=gasto_data["monto"],
+            categoria=gasto_procesado['categoria'],
+            fecha=fecha_actual,
+            texto_normalizado=gasto_procesado['texto_normalizado'],
+            dia_semana=gasto_procesado['dia_semana'],
+            hora_gasto=gasto_procesado['hora_gasto'],
+            es_fin_semana=gasto_procesado['es_fin_semana'],
+            patron_temporal=gasto_procesado['patron_temporal'],
+            frecuencia_descripcion=gasto_procesado['frecuencia_descripcion'],
+            confianza_categoria=gasto_procesado['confianza_categoria']
+        )
+    else:
+        # Procesamiento básico para uso frontend
+        db_gasto = Gasto(
+            usuario_id=gasto_data["usuario_id"],
+            descripcion=gasto_data["descripcion"],
+            monto=gasto_data["monto"],
+            categoria=gasto_data["categoria"],
+            fecha=fecha_actual,
+            # Campos ML básicos
+            texto_normalizado=gasto_data["descripcion"].lower().strip(),
+            dia_semana=fecha_actual.weekday(),
+            hora_gasto=fecha_actual.hour,
+            es_fin_semana=fecha_actual.weekday() >= 5,
+            patron_temporal=obtener_patron_temporal(fecha_actual.hour),
+            frecuencia_descripcion=1,
+            confianza_categoria=calcular_confianza_inicial(gasto_data["descripcion"], gasto_data["categoria"]),
+            es_recurrente=False
+        )
     
-    # Crear gasto en BD
-    db_gasto = Gasto(
-        usuario_id=gasto.usuario_id,
-        descripcion=gasto.descripcion,
-        monto=gasto.monto,
-        categoria=gasto_procesado.get('categoria') or gasto.categoria,
-        subcategoria=gasto.subcategoria,
-        ubicacion=gasto.ubicacion,
-        metodo_pago=gasto.metodo_pago,
-        texto_normalizado=gasto_procesado['texto_normalizado'],
-        dia_semana=gasto_procesado['dia_semana'],
-        hora_gasto=gasto_procesado['hora_gasto'],
-        es_fin_semana=gasto_procesado['es_fin_semana'],
-        patron_temporal=gasto_procesado['patron_temporal'],
-        frecuencia_descripcion=gasto_procesado['frecuencia_descripcion'],
-        confianza_categoria=gasto_procesado.get('confianza_categoria', 0.0)
-    )
-    
+    # Guardar en base de datos
     db.add(db_gasto)
     db.commit()
     db.refresh(db_gasto)
     
-    # Analizar si es anómalo en segundo plano
-    background_tasks.add_task(analizar_gasto_anomalo, db_gasto.id, gasto.usuario_id)
+    # Analizar patrones y anomalías en segundo plano
+    background_tasks.add_task(analizar_gasto_anomalo, db_gasto.id, gasto_data["usuario_id"])
     
     return db_gasto
 

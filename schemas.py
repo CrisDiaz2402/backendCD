@@ -56,9 +56,6 @@ class GastoBase(BaseModel):
     descripcion: str
     monto: float
     categoria: Optional[CategoriaGasto] = None
-    subcategoria: Optional[str] = None
-    ubicacion: Optional[str] = None
-    metodo_pago: Optional[str] = None
 
 class GastoCreate(GastoBase):
     usuario_id: int
@@ -73,8 +70,6 @@ class GastoUpdate(BaseModel):
     descripcion: Optional[str] = None
     monto: Optional[float] = None
     categoria: Optional[CategoriaGasto] = None
-    subcategoria: Optional[str] = None
-    metodo_pago: Optional[str] = None
 
 class Gasto(GastoBase):
     id: int
