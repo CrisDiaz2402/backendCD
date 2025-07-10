@@ -297,11 +297,24 @@ def obtener_gasto(gasto_id: int, db: Session = Depends(get_db)):
     return gasto
 
 @app.put("/gastos/{gasto_id}", response_model=GastoSchema)
-def actualizar_gasto(gasto_id: int, gasto_update: GastoUpdate, db: Session = Depends(get_db)):
-    """Actualizar un gasto existente"""
-    db_gasto = db.query(Gasto).filter(Gasto.id == gasto_id).first()
+def actualizar_gasto(
+    gasto_id: int, 
+    gasto_update: GastoUpdate, 
+    usuario_id: int,
+    db: Session = Depends(get_db)
+):
+    """Actualizar un gasto existente con validación de usuario"""
+    # Buscar el gasto y verificar que pertenece al usuario
+    db_gasto = db.query(Gasto).filter(
+        Gasto.id == gasto_id,
+        Gasto.usuario_id == usuario_id
+    ).first()
+    
     if not db_gasto:
-        raise HTTPException(status_code=404, detail="Gasto no encontrado")
+        raise HTTPException(
+            status_code=404, 
+            detail="Gasto no encontrado o no pertenece al usuario especificado"
+        )
     
     # Actualizar campos proporcionados
     for field, value in gasto_update.dict(exclude_unset=True).items():
