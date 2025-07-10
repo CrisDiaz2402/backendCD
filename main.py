@@ -17,7 +17,8 @@ from schemas import (
     PatronGasto as PatronGastoSchema,
     TransportePredefinidoCreate, TransportePredefinido as TransportePredefinidoSchema,
     AnalisisRequest, AnalisisResponse, RecomendacionML, AnomaliaDetectada,
-    PrediccionGasto, EstadisticasUsuario, FeedbackML, ResumenML
+    PrediccionGasto, EstadisticasUsuario, FeedbackML, ResumenML,
+    EliminacionResponse, EliminacionCategoriaResponse, EliminacionTotalResponse
 )
 from ml_services import clasificador_gastos, detector_anomalias, analizador_patrones
 from ml_utils import (
@@ -312,15 +313,120 @@ def actualizar_gasto(gasto_id: int, gasto_update: GastoUpdate, db: Session = Dep
     return db_gasto
 
 @app.delete("/gastos/{gasto_id}")
-def eliminar_gasto(gasto_id: int, db: Session = Depends(get_db)):
-    """Eliminar un gasto"""
-    db_gasto = db.query(Gasto).filter(Gasto.id == gasto_id).first()
-    if not db_gasto:
-        raise HTTPException(status_code=404, detail="Gasto no encontrado")
+def eliminar_gasto(
+    gasto_id: int, 
+    usuario_id: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Eliminar un gasto específico
     
+    Args:
+        gasto_id: ID del gasto a eliminar
+        usuario_id: ID del usuario (opcional, para validación adicional de seguridad)
+    
+    Returns:
+        Mensaje de confirmación con detalles del gasto eliminado
+    """
+    # Buscar el gasto
+    query = db.query(Gasto).filter(Gasto.id == gasto_id)
+    
+    # Si se proporciona usuario_id, validar que el gasto pertenece a ese usuario
+    if usuario_id:
+        query = query.filter(Gasto.usuario_id == usuario_id)
+    
+    db_gasto = query.first()
+    
+    if not db_gasto:
+        if usuario_id:
+            raise HTTPException(
+                status_code=404, 
+                detail="Gasto no encontrado o no pertenece al usuario especificado"
+            )
+        else:
+            raise HTTPException(status_code=404, detail="Gasto no encontrado")
+    
+    # Guardar información del gasto antes de eliminarlo (para el log)
+    gasto_info = {
+        "id": db_gasto.id,
+        "descripcion": db_gasto.descripcion,
+        "monto": db_gasto.monto,
+        "categoria": db_gasto.categoria.value if db_gasto.categoria else None,
+        "fecha": db_gasto.fecha.isoformat(),
+        "usuario_id": db_gasto.usuario_id
+    }
+    
+    # Eliminar el gasto
     db.delete(db_gasto)
     db.commit()
-    return {"mensaje": "Gasto eliminado correctamente"}
+    
+    return {
+        "mensaje": "Gasto eliminado correctamente",
+        "gasto_eliminado": gasto_info
+    }
+
+@app.delete("/gastos/batch", response_model=EliminacionResponse)
+def eliminar_gastos_multiples(
+    gastos_ids: List[int],
+    usuario_id: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Eliminar múltiples gastos por sus IDs
+    
+    Args:
+        gastos_ids: Lista de IDs de gastos a eliminar
+        usuario_id: ID del usuario (opcional, para validación de seguridad)
+    
+    Returns:
+        Resumen de la operación de eliminación
+    """
+    if not gastos_ids:
+        raise HTTPException(status_code=400, detail="Debe proporcionar al menos un ID de gasto")
+    
+    if len(gastos_ids) > 100:
+        raise HTTPException(status_code=400, detail="No se pueden eliminar más de 100 gastos a la vez")
+    
+    # Buscar gastos existentes
+    query = db.query(Gasto).filter(Gasto.id.in_(gastos_ids))
+    
+    if usuario_id:
+        query = query.filter(Gasto.usuario_id == usuario_id)
+    
+    gastos_encontrados = query.all()
+    
+    if not gastos_encontrados:
+        raise HTTPException(status_code=404, detail="No se encontraron gastos con los IDs proporcionados")
+    
+    # Información de gastos antes de eliminar
+    gastos_eliminados = []
+    monto_total_eliminado = 0.0
+    
+    for gasto in gastos_encontrados:
+        gastos_eliminados.append({
+            "id": gasto.id,
+            "descripcion": gasto.descripcion,
+            "monto": gasto.monto,
+            "categoria": gasto.categoria.value if gasto.categoria else None,
+            "fecha": gasto.fecha.isoformat()
+        })
+        monto_total_eliminado += gasto.monto
+        
+        # Eliminar el gasto
+        db.delete(gasto)
+    
+    db.commit()
+    
+    ids_no_encontrados = set(gastos_ids) - set(g.id for g in gastos_encontrados)
+    
+    return {
+        "mensaje": f"Eliminados {len(gastos_eliminados)} gastos correctamente",
+        "gastos_eliminados": len(gastos_eliminados),
+        "monto_total_eliminado": round(monto_total_eliminado, 2),
+        "gastos_eliminados_detalle": gastos_eliminados,
+        "ids_solicitados": len(gastos_ids),
+        "ids_no_encontrados": list(ids_no_encontrados) if ids_no_encontrados else []
+    }
 
 @app.get("/gastos/usuario/{usuario_id}/categoria/{categoria}", response_model=List[GastoSchema])
 def obtener_gastos_usuario_por_categoria(
@@ -725,6 +831,91 @@ def analizar_gasto_anomalo(gasto_id: int, usuario_id: int):
         db.close()
     except Exception as e:
         print(f"Error en análisis de anomalía: {e}")
+
+@app.delete("/gastos/usuario/{usuario_id}/todos")
+def eliminar_todos_gastos_usuario(
+    usuario_id: int,
+    confirmar: bool = False,
+    confirmar_todos: bool = False,
+    db: Session = Depends(get_db)
+):
+    """
+    Eliminar TODOS los gastos de un usuario (operación destructiva)
+    
+    Args:
+        usuario_id: ID del usuario
+        confirmar: Primera confirmación requerida
+        confirmar_todos: Segunda confirmación requerida (doble confirmación)
+    
+    Returns:
+        Resumen completo de eliminación
+    """
+    # Verificar doble confirmación
+    if not (confirmar and confirmar_todos):
+        raise HTTPException(
+            status_code=400, 
+            detail="Operación destructiva requiere doble confirmación: confirmar=true&confirmar_todos=true"
+        )
+    
+    # Verificar que el usuario existe
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    
+    # Obtener todos los gastos del usuario
+    gastos = db.query(Gasto).filter(Gasto.usuario_id == usuario_id).all()
+    
+    if not gastos:
+        return {
+            "mensaje": "El usuario no tiene gastos registrados",
+            "usuario_id": usuario_id,
+            "gastos_eliminados": 0,
+            "monto_total_eliminado": 0.0
+        }
+    
+    # Calcular estadísticas por categoría
+    estadisticas_por_categoria = {}
+    monto_total = 0.0
+    
+    for gasto in gastos:
+        categoria = gasto.categoria.value if gasto.categoria else "SIN_CATEGORIA"
+        
+        if categoria not in estadisticas_por_categoria:
+            estadisticas_por_categoria[categoria] = {
+                "cantidad": 0,
+                "monto_total": 0.0,
+                "gastos": []
+            }
+        
+        estadisticas_por_categoria[categoria]["cantidad"] += 1
+        estadisticas_por_categoria[categoria]["monto_total"] += gasto.monto
+        estadisticas_por_categoria[categoria]["gastos"].append({
+            "id": gasto.id,
+            "descripcion": gasto.descripcion,
+            "monto": gasto.monto,
+            "fecha": gasto.fecha.isoformat()
+        })
+        
+        monto_total += gasto.monto
+        db.delete(gasto)
+    
+    db.commit()
+    
+    # Redondear montos
+    for categoria in estadisticas_por_categoria:
+        estadisticas_por_categoria[categoria]["monto_total"] = round(
+            estadisticas_por_categoria[categoria]["monto_total"], 2
+        )
+    
+    return {
+        "mensaje": f"TODOS los gastos del usuario {usuario_id} han sido eliminados",
+        "usuario_id": usuario_id,
+        "total_gastos_eliminados": len(gastos),
+        "monto_total_eliminado": round(monto_total, 2),
+        "estadisticas_por_categoria": estadisticas_por_categoria,
+        "fecha_eliminacion": datetime.now().isoformat(),
+        "advertencia": "Esta acción no se puede deshacer"
+    }
 
 if __name__ == "__main__":
     import uvicorn

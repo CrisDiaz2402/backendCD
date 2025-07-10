@@ -198,3 +198,53 @@ class ModeloInfo(BaseModel):
     fecha_entrenamiento: datetime
     esta_activo: bool
     dataset_size: int
+
+# Esquemas para eliminación de gastos
+class EliminacionGastoRequest(BaseModel):
+    gastos_ids: List[int]
+    usuario_id: Optional[int] = None
+    
+    @validator('gastos_ids')
+    def validar_lista_ids(cls, v):
+        if not v:
+            raise ValueError('Debe proporcionar al menos un ID de gasto')
+        if len(v) > 100:
+            raise ValueError('No se pueden eliminar más de 100 gastos a la vez')
+        return v
+
+class GastoEliminado(BaseModel):
+    id: int
+    descripcion: str
+    monto: float
+    categoria: Optional[str] = None
+    fecha: str
+
+class EliminacionResponse(BaseModel):
+    mensaje: str
+    gastos_eliminados: int
+    monto_total_eliminado: float
+    gastos_eliminados_detalle: List[GastoEliminado]
+    ids_no_encontrados: List[int] = []
+
+class EliminacionCategoriaResponse(BaseModel):
+    mensaje: str
+    usuario_id: int
+    categoria: str
+    gastos_eliminados: int
+    monto_total_eliminado: float
+    rango_fechas: dict
+    gastos_eliminados_detalle: List[GastoEliminado]
+
+class EstadisticasEliminacion(BaseModel):
+    cantidad: int
+    monto_total: float
+    gastos: List[GastoEliminado]
+
+class EliminacionTotalResponse(BaseModel):
+    mensaje: str
+    usuario_id: int
+    total_gastos_eliminados: int
+    monto_total_eliminado: float
+    estadisticas_por_categoria: dict
+    fecha_eliminacion: str
+    advertencia: str
