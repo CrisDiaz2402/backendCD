@@ -41,6 +41,26 @@ def get_db():
 # ENDPOINTS DE AUTENTICACIÓN
 # ========================
 
+# Nuevo endpoint POST para modificar datos del usuario autenticado
+@app.post("/auth/update-profile", response_model=UsuarioResponse)
+def actualizar_perfil_usuario_post(
+    usuario_update: UsuarioUpdate,
+    current_user: Usuario = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Actualizar los datos del usuario autenticado (POST).
+    Solo se modifican los campos enviados en el body.
+    """
+    update_data = usuario_update.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        if value is not None:
+            setattr(current_user, field, value)
+    current_user.updated_at = datetime.now()
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
 @app.post("/auth/register", response_model=UsuarioResponse)
 def registrar_usuario(usuario: UsuarioCreate, db: Session = Depends(get_db)):
     """Registrar un nuevo usuario"""
@@ -145,6 +165,49 @@ def actualizar_perfil_usuario(
 # ========================
 # ENDPOINTS DE UTILIDADES
 # ========================
+
+# Endpoint para editar un gasto del usuario autenticado
+from fastapi import Body
+from schemas import GastoUpdate
+
+@app.post("/auth/gastos/update", response_model=GastoSchema)
+def editar_gasto_usuario(
+    gasto_id: int = Body(..., embed=True, description="ID del gasto a editar"),
+    gasto_update: GastoUpdate = Body(...),
+    current_user: Usuario = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Editar un gasto del usuario autenticado. Solo se modifican los campos enviados.
+    """
+    gasto = db.query(Gasto).filter(Gasto.id == gasto_id, Gasto.usuario_id == current_user.id).first()
+    if not gasto:
+        raise HTTPException(status_code=404, detail="Gasto no encontrado")
+    update_data = gasto_update.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        if value is not None:
+            setattr(gasto, field, value)
+    gasto.updated_at = datetime.now()
+    db.commit()
+    db.refresh(gasto)
+    return gasto
+
+# Endpoint para eliminar un gasto del usuario autenticado
+@app.post("/auth/gastos/delete")
+def eliminar_gasto_usuario(
+    gasto_id: int = Body(..., embed=True, description="ID del gasto a eliminar"),
+    current_user: Usuario = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Eliminar un gasto del usuario autenticado por su ID.
+    """
+    gasto = db.query(Gasto).filter(Gasto.id == gasto_id, Gasto.usuario_id == current_user.id).first()
+    if not gasto:
+        raise HTTPException(status_code=404, detail="Gasto no encontrado")
+    db.delete(gasto)
+    db.commit()
+    return {"message": "Gasto eliminado exitosamente", "id": gasto_id}
 
 @app.get("/")
 def root():

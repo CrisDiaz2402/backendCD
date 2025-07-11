@@ -85,10 +85,11 @@ Authorization: Bearer <token_jwt>
 
 ## 👤 ENDPOINTS DE PERFIL DE USUARIO
 
-### 3. Actualizar Perfil Completo
-**PATCH** `/auth/perfil`
 
-Permite actualizar cualquier campo del perfil del usuario. Solo se envían los campos que se desean modificar.
+### 3. Actualizar Perfil Completo
+**POST** `/auth/update-profile`
+
+Permite actualizar cualquier campo del perfil del usuario autenticado. Solo se envían los campos que se desean modificar.
 
 **Headers:**
 ```
@@ -288,6 +289,7 @@ GET /auth/gastos?categoria=TRANSPORTE&fecha_inicio=2025-07-01
 
 ---
 
+
 ### 8. Crear Gasto
 **POST** `/auth/gastos`
 
@@ -326,18 +328,71 @@ Authorization: Bearer <token_jwt>
 
 ---
 
-### 9. Eliminar Gasto
-**DELETE** `/auth/gastos/{id}`
+### 9. Editar Gasto
+**POST** `/auth/gastos/update`
 
-Elimina un gasto existente por su ID.
+Edita un gasto existente del usuario autenticado. Solo se modifican los campos enviados.
 
 **Headers:**
 ```
 Authorization: Bearer <token_jwt>
 ```
 
-**Response (204):**
-Sin contenido
+**Request Body:**
+```json
+{
+  "gasto_id": 3,
+  "gasto_update": {
+    "descripcion": "Cena con colegas",
+    "monto": 50.00,
+    "categoria": "COMIDA"
+  }
+}
+```
+
+**Response (200):**
+```json
+{
+  "id": 3,
+  "descripcion": "Cena con colegas",
+  "monto": 50.00,
+  "categoria": "COMIDA",
+  "fecha": "2025-07-10T20:00:00.000Z",
+  "created_at": "2025-07-10T20:00:00.000Z",
+  "updated_at": "2025-07-10T21:00:00.000Z"
+}
+```
+
+**Errors:**
+- `404`: Gasto no encontrado
+- `400`: Datos inválidos
+
+---
+
+### 10. Eliminar Gasto
+**POST** `/auth/gastos/delete`
+
+Elimina un gasto existente del usuario autenticado por su ID.
+
+**Headers:**
+```
+Authorization: Bearer <token_jwt>
+```
+
+**Request Body:**
+```json
+{
+  "gasto_id": 3
+}
+```
+
+**Response (200):**
+```json
+{
+  "message": "Gasto eliminado exitosamente",
+  "id": 3
+}
+```
 
 **Errors:**
 - `404`: Gasto no encontrado
