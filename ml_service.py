@@ -45,13 +45,14 @@ class MLService:
         try:
             # Validar que la categoría del usuario sea válida
             categorias_validas = ['comida', 'transporte', 'varios']
-            if categoria_usuario.lower() not in categorias_validas:
-                categoria_usuario = 'varios'  # Categoría por defecto
+            categoria_usuario_normalizada = categoria_usuario.lower().strip()
+            if categoria_usuario_normalizada not in categorias_validas:
+                categoria_usuario_normalizada = 'varios'  # Categoría por defecto
             
             # Llamar al modelo
             result = self.client.predict(
                 descripcion=descripcion,
-                categoria_usuario=categoria_usuario.lower(),
+                categoria_usuario=categoria_usuario_normalizada,
                 api_name="/predict"
             )
             
@@ -60,10 +61,10 @@ class MLService:
             return {
                 "exito": True,
                 "prediccion_modelo": result,
-                "categoria_original": categoria_usuario,
+                "categoria_original": categoria_usuario_normalizada,
                 "descripcion": descripcion,
-                "recomendacion": self._interpretar_resultado(result, categoria_usuario),
-                "confianza": self._calcular_confianza(result, categoria_usuario)
+                "recomendacion": self._interpretar_resultado(result, categoria_usuario_normalizada),
+                "confianza": self._calcular_confianza(result, categoria_usuario_normalizada)
             }
             
         except Exception as e:
@@ -75,6 +76,9 @@ class MLService:
         Interpretar el resultado del modelo y generar una recomendación clara
         """
         try:
+            # Normalizar categoría original a minúsculas
+            categoria_original_normalizada = categoria_original.lower().strip()
+            
             # Si el resultado es un string, intentar parsearlo como categoría
             if isinstance(resultado, str):
                 categoria_sugerida = resultado.lower().strip()
@@ -90,51 +94,108 @@ class MLService:
                     'viaje': 'transporte',
                     'taxi': 'transporte',
                     'bus': 'transporte',
+                    'gasolina': 'transporte',
+                    'combustible': 'transporte',
                     'varios': 'varios',
                     'other': 'varios',
                     'others': 'varios',
                     'miscellaneous': 'varios'
                 }
                 
-                categoria_final = mapeo_categorias.get(categoria_sugerida, categoria_original)
+                categoria_final = mapeo_categorias.get(categoria_sugerida, categoria_original_normalizada)
                 
                 return {
                     "categoria_sugerida": categoria_final,
-                    "categoria_original": categoria_original,
-                    "coincide": categoria_final == categoria_original.lower(),
-                    "mensaje": self._generar_mensaje_recomendacion(categoria_final, categoria_original)
+                    "categoria_original": categoria_original_normalizada,
+                    "coincide": categoria_final == categoria_original_normalizada,
+                    "mensaje": self._generar_mensaje_recomendacion(categoria_final, categoria_original_normalizada)
                 }
             
-            # Si es un diccionario o estructura más compleja
-            elif isinstance(resultado, (dict, list)):
-                return {
-                    "categoria_sugerida": categoria_original,
-                    "categoria_original": categoria_original,
-                    "coincide": True,
-                    "mensaje": "El modelo proporcionó una respuesta compleja. Se mantiene la categoría original.",
-                    "resultado_raw": resultado
-                }
+            # Si es un diccionario, extraer la categoría sugerida del resultado
+            elif isinstance(resultado, dict):
+                # Buscar campos que puedan contener la categoría sugerida
+                categoria_sugerida = None
+                
+                # Posibles claves que pueden contener la categoría
+                claves_categoria = [
+                    'Categoría Sugerida', 'categoria_sugerida', 'suggested_category',
+                    'prediction', 'category', 'categoria', 'Categoria Sugerida'
+                ]
+                
+                for clave in claves_categoria:
+                    if clave in resultado and resultado[clave]:
+                        categoria_sugerida = str(resultado[clave]).lower().strip()
+                        break
+                
+                if categoria_sugerida:
+                    # Mapear la categoría encontrada
+                    mapeo_categorias = {
+                        'comida': 'comida',
+                        'food': 'comida',
+                        'alimentacion': 'comida',
+                        'restaurante': 'comida',
+                        'transporte': 'transporte',
+                        'transport': 'transporte',
+                        'viaje': 'transporte',
+                        'taxi': 'transporte',
+                        'bus': 'transporte',
+                        'gasolina': 'transporte',
+                        'combustible': 'transporte',
+                        'varios': 'varios',
+                        'other': 'varios',
+                        'others': 'varios',
+                        'miscellaneous': 'varios'
+                    }
+                    
+                    categoria_final = mapeo_categorias.get(categoria_sugerida, categoria_original_normalizada)
+                    
+                    return {
+                        "categoria_sugerida": categoria_final,
+                        "categoria_original": categoria_original_normalizada,
+                        "coincide": categoria_final == categoria_original_normalizada,
+                        "mensaje": self._generar_mensaje_recomendacion(categoria_final, categoria_original_normalizada)
+                    }
+                else:
+                    # Si no encontramos categoría en el diccionario, mantener original
+                    logger.warning(f"No se pudo extraer categoría del resultado: {resultado}")
+                    return {
+                        "categoria_sugerida": categoria_original_normalizada,
+                        "categoria_original": categoria_original_normalizada,
+                        "coincide": True,
+                        "mensaje": "El modelo proporcionó una respuesta compleja. Se mantiene la categoría original.",
+                        "resultado_raw": resultado
+                    }
+            
+            # Si es una lista, intentar extraer el primer elemento
+            elif isinstance(resultado, list) and len(resultado) > 0:
+                # Recursivamente interpretar el primer elemento
+                return self._interpretar_resultado(resultado[0], categoria_original)
             
             else:
                 return {
-                    "categoria_sugerida": categoria_original,
-                    "categoria_original": categoria_original,
+                    "categoria_sugerida": categoria_original_normalizada,
+                    "categoria_original": categoria_original_normalizada,
                     "coincide": True,
                     "mensaje": "Se mantiene la categoría original."
                 }
                 
         except Exception as e:
             logger.error(f"Error interpretando resultado: {str(e)}")
+            categoria_original_normalizada = categoria_original.lower().strip()
             return {
-                "categoria_sugerida": categoria_original,
-                "categoria_original": categoria_original,
+                "categoria_sugerida": categoria_original_normalizada,
+                "categoria_original": categoria_original_normalizada,
                 "coincide": True,
                 "mensaje": "Error en interpretación. Se mantiene la categoría original."
             }
     
     def _generar_mensaje_recomendacion(self, categoria_sugerida: str, categoria_original: str) -> str:
         """Generar mensaje de recomendación basado en la comparación"""
-        if categoria_sugerida == categoria_original.lower():
+        # Asegurar que ambas categorías estén normalizadas
+        categoria_sugerida = categoria_sugerida.lower().strip()
+        categoria_original = categoria_original.lower().strip()
+        
+        if categoria_sugerida == categoria_original:
             return f"✅ Excelente elección! La categoría '{categoria_original}' es la más apropiada para este gasto."
         else:
             return f"💡 Sugerencia: Considera cambiar de '{categoria_original}' a '{categoria_sugerida}' para una mejor clasificación."
@@ -142,15 +203,35 @@ class MLService:
     def _calcular_confianza(self, resultado: Any, categoria_original: str) -> float:
         """Calcular un nivel de confianza básico"""
         try:
+            categoria_original_normalizada = categoria_original.lower().strip()
+            
             if isinstance(resultado, str):
+                resultado_normalizado = resultado.lower().strip()
                 # Si coincide con la categoría original, alta confianza
-                if resultado.lower().strip() == categoria_original.lower():
+                if resultado_normalizado == categoria_original_normalizada:
                     return 0.9
                 # Si es una categoría válida diferente, confianza media
-                elif resultado.lower().strip() in ['comida', 'transporte', 'varios']:
+                elif resultado_normalizado in ['comida', 'transporte', 'varios']:
                     return 0.75
                 else:
                     return 0.5
+            elif isinstance(resultado, dict):
+                # Si es un diccionario, intentar extraer la categoría
+                claves_categoria = [
+                    'Categoría Sugerida', 'categoria_sugerida', 'suggested_category',
+                    'prediction', 'category', 'categoria', 'Categoria Sugerida'
+                ]
+                
+                for clave in claves_categoria:
+                    if clave in resultado and resultado[clave]:
+                        resultado_normalizado = str(resultado[clave]).lower().strip()
+                        if resultado_normalizado == categoria_original_normalizada:
+                            return 0.9
+                        elif resultado_normalizado in ['comida', 'transporte', 'varios']:
+                            return 0.75
+                        break
+                
+                return 0.6  # Confianza por defecto para diccionarios
             else:
                 return 0.6  # Confianza por defecto para resultados no string
         except:
@@ -158,14 +239,16 @@ class MLService:
     
     def _respuesta_fallback(self, descripcion: str, categoria_usuario: str, error: str = None) -> Dict[str, Any]:
         """Respuesta de respaldo cuando el modelo no está disponible"""
+        categoria_normalizada = categoria_usuario.lower().strip()
+        
         return {
             "exito": False,
             "error": error or "Servicio de ML no disponible",
-            "categoria_original": categoria_usuario,
+            "categoria_original": categoria_normalizada,
             "descripcion": descripcion,
             "recomendacion": {
-                "categoria_sugerida": categoria_usuario,
-                "categoria_original": categoria_usuario,
+                "categoria_sugerida": categoria_normalizada,
+                "categoria_original": categoria_normalizada,
                 "coincide": True,
                 "mensaje": "🔧 Servicio de ML temporalmente no disponible. Se mantiene tu categoría elegida."
             },
