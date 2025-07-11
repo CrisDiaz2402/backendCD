@@ -288,62 +288,287 @@ GET /auth/gastos?categoria=TRANSPORTE&fecha_inicio=2025-07-01
 
 ---
 
-## 📊 ENUMERACIONES
+## 🤖 ENDPOINTS DE MACHINE LEARNING
 
-### Categorías de Gastos
-```
-COMIDA
-TRANSPORTE
-VARIOS
+### 8. Obtener Sugerencia de Categoría
+**POST** `/ml/sugerencia`
+
+Obtiene una sugerencia de categoría del modelo de ML sin crear un gasto. Útil para probar qué categoría sugiere el modelo antes de crear realmente el gasto.
+
+**Request Body:**
+```json
+{
+  "descripcion": "Almuerzo en McDonald's",
+  "categoria_usuario": "VARIOS"
+}
 ```
 
-### Períodos de Presupuesto
+**Response (200):**
+```json
+{
+  "exito": true,
+  "prediccion_modelo": {
+    "Descripción": "Almuerzo en McDonald's",
+    "Categoría Usuario": "varios",
+    "Categoría Sugerida": "Comida",
+    "¿Coincide?": "❌ No"
+  },
+  "categoria_original": "varios",
+  "descripcion": "Almuerzo en McDonald's",
+  "recomendacion": {
+    "categoria_sugerida": "comida",
+    "categoria_original": "varios",
+    "coincide": false,
+    "mensaje": "💡 Sugerencia: Considera cambiar de 'varios' a 'comida' para una mejor clasificación."
+  },
+  "confianza": 0.75
+}
 ```
-DIARIO
-SEMANAL
-MENSUAL
+
+**Errors:**
+- `400`: Descripción vacía o muy corta
+- `500`: Error en el servicio de ML
+
+---
+
+### 9. Crear Gasto con Sugerencia ML
+**POST** `/gastos/con-sugerencia`
+
+Crea un nuevo gasto y obtiene automáticamente una sugerencia del modelo ML sobre si la categoría elegida es la más apropiada.
+
+**Request Body:**
+```json
+{
+  "descripcion": "Taxi al aeropuerto",
+  "monto": 45.50,
+  "categoria": "TRANSPORTE",
+  "usuario_id": 1
+}
+```
+
+**Response (200):**
+```json
+{
+  "gasto": {
+    "id": 15,
+    "descripcion": "Taxi al aeropuerto",
+    "monto": 45.50,
+    "categoria": "TRANSPORTE",
+    "usuario_id": 1,
+    "fecha": "2025-07-10T15:30:00.000Z",
+    "created_at": "2025-07-10T15:30:00.000Z",
+    "updated_at": "2025-07-10T15:30:00.000Z"
+  },
+  "sugerencia_ml": {
+    "exito": true,
+    "prediccion_modelo": {
+      "Descripción": "Taxi al aeropuerto",
+      "Categoría Usuario": "transporte",
+      "Categoría Sugerida": "Transporte",
+      "¿Coincide?": "✅ Sí"
+    },
+    "categoria_original": "transporte",
+    "descripcion": "Taxi al aeropuerto",
+    "recomendacion": {
+      "categoria_sugerida": "transporte",
+      "categoria_original": "transporte",
+      "coincide": true,
+      "mensaje": "✅ Excelente elección! La categoría 'transporte' es la más apropiada para este gasto."
+    },
+    "confianza": 0.9
+  }
+}
 ```
 
 ---
 
-## ❌ CÓDIGOS DE ERROR COMUNES
+### 10. Verificar Estado del ML
+**GET** `/ml/estado`
 
-### 400 - Bad Request
+Verifica si el servicio de Machine Learning está disponible y funcionando correctamente.
+
+**Response (200) - Servicio Activo:**
 ```json
 {
-  "detail": "El teléfono debe tener exactamente 10 dígitos numéricos"
-}
-```
-
-### 401 - Unauthorized
-```json
-{
-  "detail": "No se pudieron validar las credenciales"
-}
-```
-
-### 422 - Validation Error
-```json
-{
-  "detail": [
-    {
-      "loc": ["body", "presupuesto"],
-      "msg": "El presupuesto debe ser positivo o cero",
-      "type": "value_error"
+  "servicio_ml": "activo",
+  "modelo": "cristiandiaz2403/MiSpace",
+  "detalles": {
+    "disponible": true,
+    "modelo": "cristiandiaz2403/MiSpace",
+    "respuesta_test": {
+      "exito": true,
+      "prediccion_modelo": {
+        "Descripción": "test comida hamburguesa",
+        "Categoría Usuario": "comida",
+        "Categoría Sugerida": "Comida",
+        "¿Coincide?": "✅ Sí"
+      },
+      "categoria_original": "comida",
+      "descripcion": "test comida hamburguesa",
+      "recomendacion": {
+        "categoria_sugerida": "comida",
+        "categoria_original": "comida",
+        "coincide": true,
+        "mensaje": "✅ Excelente elección! La categoría 'comida' es la más apropiada para este gasto."
+      },
+      "confianza": 0.9
     }
-  ]
+  }
 }
 ```
 
-### 404 - Not Found
+**Response (200) - Servicio Inactivo:**
 ```json
 {
-  "detail": "Usuario no encontrado"
+  "servicio_ml": "inactivo",
+  "modelo": "cristiandiaz2403/MiSpace",
+  "detalles": {
+    "disponible": false,
+    "modelo": "cristiandiaz2403/MiSpace",
+    "error": "Error de conexión con el modelo"
+  }
 }
 ```
 
 ---
 
+### 11. Crear Múltiples Gastos con Sugerencias
+**POST** `/gastos/batch-con-sugerencias`
+
+Crea múltiples gastos a la vez, cada uno con su respectiva sugerencia de ML. Útil para importación de datos con validación de categorías.
+
+**Request Body:**
+```json
+[
+  {
+    "descripcion": "Desayuno en cafetería",
+    "monto": 12.50,
+    "categoria": "COMIDA",
+    "usuario_id": 1
+  },
+  {
+    "descripcion": "Gasolina del carro",
+    "monto": 80.00,
+    "categoria": "TRANSPORTE",
+    "usuario_id": 1
+  }
+]
+```
+
+**Response (200):**
+```json
+[
+  {
+    "gasto": {
+      "id": 16,
+      "descripcion": "Desayuno en cafetería",
+      "monto": 12.50,
+      "categoria": "COMIDA",
+      "usuario_id": 1,
+      "fecha": "2025-07-10T15:35:00.000Z",
+      "created_at": "2025-07-10T15:35:00.000Z",
+      "updated_at": "2025-07-10T15:35:00.000Z"
+    },
+    "sugerencia_ml": {
+      "exito": true,
+      "categoria_original": "comida",
+      "recomendacion": {
+        "categoria_sugerida": "comida",
+        "categoria_original": "comida",
+        "coincide": true,
+        "mensaje": "✅ Excelente elección! La categoría 'comida' es la más apropiada para este gasto."
+      },
+      "confianza": 0.9
+    }
+  },
+  {
+    "gasto": {
+      "id": 17,
+      "descripcion": "Gasolina del carro",
+      "monto": 80.00,
+      "categoria": "TRANSPORTE",
+      "usuario_id": 1,
+      "fecha": "2025-07-10T15:35:01.000Z",
+      "created_at": "2025-07-10T15:35:01.000Z",
+      "updated_at": "2025-07-10T15:35:01.000Z"
+    },
+    "sugerencia_ml": {
+      "exito": true,
+      "categoria_original": "transporte",
+      "recomendacion": {
+        "categoria_sugerida": "transporte",
+        "categoria_original": "transporte",
+        "coincide": true,
+        "mensaje": "✅ Excelente elección! La categoría 'transporte' es la más apropiada para este gasto."
+      },
+      "confianza": 0.85
+    }
+  }
+]
+```
+
+**Limitaciones:**
+- Máximo 50 gastos por solicitud
+- Si el ML falla para un gasto, se crea el gasto pero con sugerencia de error
+
+---
+
+## 🎯 CÓMO FUNCIONA EL MACHINE LEARNING
+
+### Flujo de Trabajo con ML
+
+1. **Endpoint de Solo Sugerencia** (`/ml/sugerencia`):
+   - Envías descripción + categoría elegida
+   - Obtienes sugerencia del modelo SIN crear el gasto
+   - Útil para "preview" antes de guardar
+
+2. **Endpoint de Creación con ML** (`/gastos/con-sugerencia`):
+   - Creas el gasto normalmente
+   - Automáticamente obtienes feedback del ML
+   - El gasto se guarda siempre, independiente del ML
+
+3. **Interpretación de Resultados**:
+   - `coincide: true` = El modelo está de acuerdo con tu elección ✅
+   - `coincide: false` = El modelo sugiere una categoría diferente 💡
+   - `confianza: 0.0-1.0` = Nivel de confianza del modelo
+
+### Ejemplo de Uso en Frontend
+
+```javascript
+// 1. Obtener sugerencia antes de crear
+const sugerencia = await fetch('/ml/sugerencia', {
+  method: 'POST',
+  body: JSON.stringify({
+    descripcion: "Pizza a domicilio",
+    categoria_usuario: "VARIOS"
+  })
+});
+
+// 2. Mostrar sugerencia al usuario
+if (!sugerencia.recomendacion.coincide) {
+  alert(sugerencia.recomendacion.mensaje);
+  // "💡 Sugerencia: Considera cambiar de 'varios' a 'comida'"
+}
+
+// 3. Crear gasto con feedback automático
+const resultado = await fetch('/gastos/con-sugerencia', {
+  method: 'POST',
+  body: JSON.stringify({
+    descripcion: "Pizza a domicilio",
+    monto: 25.50,
+    categoria: "COMIDA", // Usuario decidió cambiar
+    usuario_id: 1
+  })
+});
+```
+
+### Categorías que Reconoce el Modelo
+
+- **COMIDA**: restaurantes, comida rápida, supermercado, bebidas, etc.
+- **TRANSPORTE**: taxi, bus, gasolina, Uber, pasajes, etc.  
+- **VARIOS**: todo lo demás (entretenimiento, ropa, servicios, etc.)
+
+---
 
 ## 📋 NOTAS IMPORTANTES
 
@@ -360,3 +585,13 @@ MENSUAL
 6. **Presupuesto**: El presupuesto es opcional al crear el usuario, pero una vez establecido puede modificarse.
 
 7. **Teléfono**: El campo teléfono es opcional y debe tener exactamente 10 dígitos numéricos.
+
+8. **Machine Learning**: Los endpoints de ML son opcionales - si fallan, la funcionalidad básica sigue funcionando.
+
+9. **Categorías ML**: El modelo reconoce patrones en las descripciones para sugerir la categoría más apropiada.
+
+10. **Confianza**: Un valor alto (>0.8) indica que el modelo está muy seguro de su sugerencia.
+
+11. **Fallback**: Si el ML no está disponible, se mantiene la categoría elegida por el usuario.
+
+12. **Performance**: Las sugerencias son en tiempo real pero pueden tardar 1-3 segundos.

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, validator
-from typing import Optional, List
+from typing import Optional, List, Any
 from datetime import datetime
 from models import CategoriaGasto, PeriodoPresupuesto
 import enum
@@ -166,9 +166,38 @@ class EstadisticasEliminacion(BaseModel):
 
 class EliminacionTotalResponse(BaseModel):
     mensaje: str
+    gastos_eliminados: int
     usuario_id: int
-    total_gastos_eliminados: int
     monto_total_eliminado: float
-    estadisticas_por_categoria: dict
-    fecha_eliminacion: str
-    advertencia: str
+
+# Esquemas para ML y sugerencias
+class SugerenciaRequest(BaseModel):
+    descripcion: str
+    categoria_usuario: CategoriaGasto
+    
+    @validator('descripcion')
+    def validar_descripcion(cls, v):
+        if not v or not v.strip():
+            raise ValueError('La descripción no puede estar vacía')
+        if len(v.strip()) < 3:
+            raise ValueError('La descripción debe tener al menos 3 caracteres')
+        return v.strip()
+
+class RecomendacionCategoria(BaseModel):
+    categoria_sugerida: str
+    categoria_original: str
+    coincide: bool
+    mensaje: str
+
+class SugerenciaResponse(BaseModel):
+    exito: bool
+    prediccion_modelo: Optional[Any] = None
+    categoria_original: str
+    descripcion: str
+    recomendacion: RecomendacionCategoria
+    confianza: float
+    error: Optional[str] = None
+
+class GastoConSugerencia(BaseModel):
+    gasto: Gasto
+    sugerencia_ml: SugerenciaResponse

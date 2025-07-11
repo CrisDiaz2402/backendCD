@@ -11,12 +11,14 @@ from models import Gasto, Usuario, CategoriaGasto
 from schemas import (
     GastoCreate, GastoUpdate, Gasto as GastoSchema,
     UsuarioCreate, UsuarioResponse, UsuarioLogin, UsuarioUpdate, Token, TokenWithUser,
-    EliminacionResponse, EliminacionCategoriaResponse, EliminacionTotalResponse
+    EliminacionResponse, EliminacionCategoriaResponse, EliminacionTotalResponse,
+    SugerenciaRequest, SugerenciaResponse, GastoConSugerencia
 )
 from auth import (
     authenticate_user, create_access_token, create_user,
     get_current_active_user, ACCESS_TOKEN_EXPIRE_MINUTES
 )
+from ml_service import ml_service
 
 # Crear tablas
 Base.metadata.create_all(bind=engine)
@@ -715,6 +717,200 @@ def obtener_mis_gastos(
     gastos = query.order_by(Gasto.fecha.desc()).offset(offset).limit(limite).all()
     
     return gastos
+
+# ========================
+# ENDPOINTS DE MACHINE LEARNING
+# ========================
+
+@app.post("/ml/sugerencia", response_model=SugerenciaResponse)
+def obtener_sugerencia_categoria(sugerencia: SugerenciaRequest):
+    """
+    Obtener sugerencia de categoría del modelo ML sin crear un gasto
+    
+    Este endpoint permite probar qué categoría sugiere el modelo para una descripción
+    antes de crear realmente el gasto.
+    """
+    try:
+        # Convertir enum a string para el modelo
+        categoria_str = sugerencia.categoria_usuario.value
+        
+        # Obtener sugerencia del modelo
+        resultado = ml_service.obtener_sugerencia_categoria(
+            descripcion=sugerencia.descripcion,
+            categoria_usuario=categoria_str
+        )
+        
+        return resultado
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al obtener sugerencia: {str(e)}"
+        )
+
+@app.post("/gastos/con-sugerencia", response_model=GastoConSugerencia)
+def crear_gasto_con_sugerencia(
+    gasto: GastoCreate,
+    db: Session = Depends(get_db)
+):
+    """
+    Crear un nuevo gasto y obtener sugerencia de categoría del modelo ML
+    
+    Este endpoint crea el gasto y además proporciona feedback del modelo ML
+    sobre si la categoría elegida es la más apropiada.
+    """
+    # Validaciones básicas
+    if gasto.monto <= 0:
+        raise HTTPException(status_code=400, detail="El monto debe ser positivo")
+    
+    if not gasto.descripcion or not gasto.descripcion.strip():
+        raise HTTPException(status_code=400, detail="La descripción no puede estar vacía")
+    
+    # Verificar que el usuario existe
+    usuario = db.query(Usuario).filter(Usuario.id == gasto.usuario_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    
+    # Obtener sugerencia del modelo ML antes de crear el gasto
+    try:
+        categoria_str = gasto.categoria.value
+        sugerencia_ml = ml_service.obtener_sugerencia_categoria(
+            descripcion=gasto.descripcion,
+            categoria_usuario=categoria_str
+        )
+    except Exception as e:
+        # Si hay error en ML, continuar sin la sugerencia
+        sugerencia_ml = {
+            "exito": False,
+            "error": f"Error en ML: {str(e)}",
+            "categoria_original": gasto.categoria.value,
+            "descripcion": gasto.descripcion,
+            "recomendacion": {
+                "categoria_sugerida": gasto.categoria.value,
+                "categoria_original": gasto.categoria.value,
+                "coincide": True,
+                "mensaje": "Gasto creado exitosamente. ML no disponible temporalmente."
+            },
+            "confianza": 1.0
+        }
+    
+    # Crear el gasto en la base de datos
+    db_gasto = Gasto(
+        usuario_id=gasto.usuario_id,
+        descripcion=gasto.descripcion,
+        monto=gasto.monto,
+        categoria=gasto.categoria,
+        fecha=datetime.now()
+    )
+    
+    # Guardar en base de datos
+    db.add(db_gasto)
+    db.commit()
+    db.refresh(db_gasto)
+    
+    return {
+        "gasto": db_gasto,
+        "sugerencia_ml": sugerencia_ml
+    }
+
+@app.get("/ml/estado")
+def obtener_estado_ml():
+    """
+    Verificar el estado del servicio de Machine Learning
+    """
+    try:
+        estado = ml_service.probar_conexion()
+        return {
+            "servicio_ml": "activo" if estado["disponible"] else "inactivo",
+            "modelo": estado["modelo"],
+            "detalles": estado
+        }
+    except Exception as e:
+        return {
+            "servicio_ml": "error",
+            "modelo": ml_service.model_space if ml_service else "N/A",
+            "error": str(e)
+        }
+
+@app.post("/gastos/batch-con-sugerencias", response_model=List[GastoConSugerencia])
+def crear_gastos_multiples_con_sugerencias(
+    gastos: List[GastoCreate],
+    db: Session = Depends(get_db)
+):
+    """
+    Crear múltiples gastos con sugerencias de ML para cada uno
+    
+    Útil para importación de datos con validación de categorías
+    """
+    if not gastos:
+        raise HTTPException(status_code=400, detail="Debe proporcionar al menos un gasto")
+    
+    if len(gastos) > 50:
+        raise HTTPException(status_code=400, detail="No se pueden crear más de 50 gastos a la vez")
+    
+    resultados = []
+    
+    for gasto_data in gastos:
+        try:
+            # Validaciones básicas
+            if gasto_data.monto <= 0:
+                raise HTTPException(status_code=400, detail=f"El monto debe ser positivo para gasto: {gasto_data.descripcion}")
+            
+            # Verificar que el usuario existe
+            usuario = db.query(Usuario).filter(Usuario.id == gasto_data.usuario_id).first()
+            if not usuario:
+                raise HTTPException(status_code=404, detail=f"Usuario no encontrado para gasto: {gasto_data.descripcion}")
+            
+            # Obtener sugerencia ML
+            try:
+                categoria_str = gasto_data.categoria.value
+                sugerencia_ml = ml_service.obtener_sugerencia_categoria(
+                    descripcion=gasto_data.descripcion,
+                    categoria_usuario=categoria_str
+                )
+            except Exception as e:
+                sugerencia_ml = {
+                    "exito": False,
+                    "error": f"Error en ML: {str(e)}",
+                    "categoria_original": gasto_data.categoria.value,
+                    "descripcion": gasto_data.descripcion,
+                    "recomendacion": {
+                        "categoria_sugerida": gasto_data.categoria.value,
+                        "categoria_original": gasto_data.categoria.value,
+                        "coincide": True,
+                        "mensaje": "Gasto creado. ML no disponible."
+                    },
+                    "confianza": 1.0
+                }
+            
+            # Crear gasto
+            db_gasto = Gasto(
+                usuario_id=gasto_data.usuario_id,
+                descripcion=gasto_data.descripcion,
+                monto=gasto_data.monto,
+                categoria=gasto_data.categoria,
+                fecha=datetime.now()
+            )
+            
+            db.add(db_gasto)
+            db.commit()
+            db.refresh(db_gasto)
+            
+            resultados.append({
+                "gasto": db_gasto,
+                "sugerencia_ml": sugerencia_ml
+            })
+            
+        except HTTPException:
+            # Re-lanzar HTTPExceptions
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error procesando gasto '{gasto_data.descripcion}': {str(e)}"
+            )
+    
+    return resultados
 
 if __name__ == "__main__":
     import uvicorn
