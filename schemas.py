@@ -198,6 +198,68 @@ class SugerenciaResponse(BaseModel):
     confianza: float
     error: Optional[str] = None
 
-class GastoConSugerencia(BaseModel):
+# Esquemas para decisión del usuario
+class GastoConDecision(BaseModel):
+    descripcion: str
+    monto: float
+    categoria_original: CategoriaGasto  # La que eligió inicialmente el usuario
+    categoria_sugerida: Optional[CategoriaGasto] = None  # La que sugirió el ML
+    acepta_sugerencia: bool  # True = acepta ML, False = mantiene original
+    usuario_id: int
+    
+    @validator('monto')
+    def validar_monto_positivo(cls, v):
+        if v <= 0:
+            raise ValueError('El monto debe ser positivo')
+        return v
+    
+    @validator('descripcion')
+    def validar_descripcion(cls, v):
+        if not v or not v.strip():
+            raise ValueError('La descripción no puede estar vacía')
+        if len(v.strip()) < 3:
+            raise ValueError('La descripción debe tener al menos 3 caracteres')
+        return v.strip()
+
+class FeedbackML(BaseModel):
+    categoria_original: str
+    categoria_sugerida: Optional[str] = None
+    categoria_final: str
+    usuario_acepto_sugerencia: bool
+    timestamp: str
+
+class RespuestaGastoConDecision(BaseModel):
     gasto: Gasto
-    sugerencia_ml: SugerenciaResponse
+    decision_usuario: str  # "acepto_sugerencia" o "mantuvo_original"
+    categoria_final: CategoriaGasto
+    feedback_ml: FeedbackML
+
+# Esquema unificado para crear gastos (con ML opcional)
+class GastoCreateUnificado(BaseModel):
+    descripcion: str
+    monto: float
+    categoria: CategoriaGasto
+    usar_ml: Optional[bool] = True  # Si debe usar ML para sugerencias
+    acepta_sugerencia: Optional[bool] = None  # Solo se usa si usar_ml=True y hay sugerencia diferente
+    
+    @validator('monto')
+    def validar_monto_positivo(cls, v):
+        if v <= 0:
+            raise ValueError('El monto debe ser positivo')
+        return v
+    
+    @validator('descripcion')
+    def validar_descripcion(cls, v):
+        if not v or not v.strip():
+            raise ValueError('La descripción no puede estar vacía')
+        if len(v.strip()) < 3:
+            raise ValueError('La descripción debe tener al menos 3 caracteres')
+        return v.strip()
+
+class RespuestaGastoUnificado(BaseModel):
+    gasto: Optional[Gasto] = None  # Puede ser None si aún no se crea
+    ml_usado: bool
+    sugerencia_ml: Optional[SugerenciaResponse] = None
+    decision_usuario: Optional[str] = None  # "acepto_sugerencia", "mantuvo_original", "sin_sugerencia"
+    categoria_final: CategoriaGasto
+    feedback_ml: Optional[FeedbackML] = None

@@ -288,6 +288,62 @@ GET /auth/gastos?categoria=TRANSPORTE&fecha_inicio=2025-07-01
 
 ---
 
+### 8. Crear Gasto
+**POST** `/auth/gastos`
+
+Crea un nuevo gasto para el usuario autenticado.
+
+**Headers:**
+```
+Authorization: Bearer <token_jwt>
+```
+
+**Request Body:**
+```json
+{
+  "descripcion": "Cena con amigos",
+  "monto": 45.00,
+  "categoria": "VARIOS"
+}
+```
+
+**Response (201):**
+```json
+{
+  "id": 3,
+  "descripcion": "Cena con amigos",
+  "monto": 45.00,
+  "categoria": "VARIOS",
+  "fecha": "2025-07-10T20:00:00.000Z",
+  "created_at": "2025-07-10T20:00:00.000Z",
+  "updated_at": "2025-07-10T20:00:00.000Z"
+}
+```
+
+**Errors:**
+- `400`: Datos inválidos (monto negativo, descripción vacía)
+- `401`: Usuario no autenticado
+
+---
+
+### 9. Eliminar Gasto
+**DELETE** `/auth/gastos/{id}`
+
+Elimina un gasto existente por su ID.
+
+**Headers:**
+```
+Authorization: Bearer <token_jwt>
+```
+
+**Response (204):**
+Sin contenido
+
+**Errors:**
+- `404`: Gasto no encontrado
+
+---
+
 ## 🤖 ENDPOINTS DE MACHINE LEARNING
 
 ### 8. Obtener Sugerencia de Categoría
@@ -299,7 +355,7 @@ Obtiene una sugerencia de categoría del modelo de ML sin crear un gasto. Útil 
 ```json
 {
   "descripcion": "Almuerzo en McDonald's",
-  "categoria_usuario": "VARIOS"
+  "categoria_usuario": "varios"
 }
 ```
 
@@ -331,54 +387,77 @@ Obtiene una sugerencia de categoría del modelo de ML sin crear un gasto. Útil 
 
 ---
 
-### 9. Crear Gasto con Sugerencia ML
-**POST** `/gastos/con-sugerencia`
+### 9. Crear Gasto con Decisión del Usuario
+**POST** `/gastos/con-decision`
 
-Crea un nuevo gasto y obtiene automáticamente una sugerencia del modelo ML sobre si la categoría elegida es la más apropiada.
+Crea un gasto basado en la decisión del usuario sobre la sugerencia del modelo ML. Este es el endpoint principal para el flujo interactivo con botones "Aceptar" e "Ignorar".
 
 **Request Body:**
 ```json
 {
-  "descripcion": "Taxi al aeropuerto",
-  "monto": 45.50,
-  "categoria": "TRANSPORTE",
+  "descripcion": "Almuerzo en McDonald's",
+  "monto": 25.50,
+  "categoria_original": "VARIOS",
+  "categoria_sugerida": "COMIDA",
+  "acepta_sugerencia": true,
   "usuario_id": 1
 }
 ```
 
-**Response (200):**
+**Response (200) - Usuario acepta sugerencia:**
 ```json
 {
   "gasto": {
     "id": 15,
-    "descripcion": "Taxi al aeropuerto",
-    "monto": 45.50,
-    "categoria": "TRANSPORTE",
+    "descripcion": "Almuerzo en McDonald's",
+    "monto": 25.50,
+    "categoria": "COMIDA",
     "usuario_id": 1,
     "fecha": "2025-07-10T15:30:00.000Z",
     "created_at": "2025-07-10T15:30:00.000Z",
     "updated_at": "2025-07-10T15:30:00.000Z"
   },
-  "sugerencia_ml": {
-    "exito": true,
-    "prediccion_modelo": {
-      "Descripción": "Taxi al aeropuerto",
-      "Categoría Usuario": "transporte",
-      "Categoría Sugerida": "Transporte",
-      "¿Coincide?": "✅ Sí"
-    },
-    "categoria_original": "transporte",
-    "descripcion": "Taxi al aeropuerto",
-    "recomendacion": {
-      "categoria_sugerida": "transporte",
-      "categoria_original": "transporte",
-      "coincide": true,
-      "mensaje": "✅ Excelente elección! La categoría 'transporte' es la más apropiada para este gasto."
-    },
-    "confianza": 0.9
+  "decision_usuario": "acepto_sugerencia",
+  "categoria_final": "COMIDA",
+  "feedback_ml": {
+    "categoria_original": "varios",
+    "categoria_sugerida": "comida",
+    "categoria_final": "comida",
+    "usuario_acepto_sugerencia": true,
+    "timestamp": "2025-07-10T15:30:00.000Z"
   }
 }
 ```
+
+**Response (200) - Usuario ignora sugerencia:**
+```json
+{
+  "gasto": {
+    "id": 16,
+    "descripcion": "Almuerzo en McDonald's",
+    "monto": 25.50,
+    "categoria": "VARIOS",
+    "usuario_id": 1,
+    "fecha": "2025-07-10T15:30:00.000Z",
+    "created_at": "2025-07-10T15:30:00.000Z",
+    "updated_at": "2025-07-10T15:30:00.000Z"
+  },
+  "decision_usuario": "mantuvo_original",
+  "categoria_final": "VARIOS",
+  "feedback_ml": {
+    "categoria_original": "varios",
+    "categoria_sugerida": "comida",
+    "categoria_final": "varios",
+    "usuario_acepto_sugerencia": false,
+    "timestamp": "2025-07-10T15:30:00.000Z"
+  }
+}
+```
+
+**Errors:**
+- `400`: Datos inválidos (monto negativo, descripción vacía)
+- `404`: Usuario no encontrado
+- `500`: Error interno del servidor
 
 ---
 
@@ -432,143 +511,214 @@ Verifica si el servicio de Machine Learning está disponible y funcionando corre
 
 ---
 
-### 11. Crear Múltiples Gastos con Sugerencias
-**POST** `/gastos/batch-con-sugerencias`
+## 🎯 FLUJO DE TRABAJO COMPLETO CON DECISIÓN DEL USUARIO
 
-Crea múltiples gastos a la vez, cada uno con su respectiva sugerencia de ML. Útil para importación de datos con validación de categorías.
+### Flujo Recomendado para Frontend
 
-**Request Body:**
-```json
-[
-  {
-    "descripcion": "Desayuno en cafetería",
-    "monto": 12.50,
-    "categoria": "COMIDA",
-    "usuario_id": 1
-  },
-  {
-    "descripcion": "Gasolina del carro",
-    "monto": 80.00,
-    "categoria": "TRANSPORTE",
-    "usuario_id": 1
-  }
-]
+```mermaid
+graph TD
+    A[Usuario ingresa gasto] --> B[Llamar /ml/sugerencia]
+    B --> C{¿Coincide categoría?}
+    C -->|Sí ✅| D[Crear directo con /gastos/con-decision]
+    C -->|No 💡| E[Mostrar modal con botones]
+    E --> F[Usuario elige: Aceptar/Ignorar]
+    F --> G[Llamar /gastos/con-decision con decisión]
+    D --> H[Gasto creado + Analytics]
+    G --> H
 ```
 
-**Response (200):**
-```json
-[
-  {
-    "gasto": {
-      "id": 16,
-      "descripcion": "Desayuno en cafetería",
-      "monto": 12.50,
-      "categoria": "COMIDA",
-      "usuario_id": 1,
-      "fecha": "2025-07-10T15:35:00.000Z",
-      "created_at": "2025-07-10T15:35:00.000Z",
-      "updated_at": "2025-07-10T15:35:00.000Z"
-    },
-    "sugerencia_ml": {
-      "exito": true,
-      "categoria_original": "comida",
-      "recomendacion": {
-        "categoria_sugerida": "comida",
-        "categoria_original": "comida",
-        "coincide": true,
-        "mensaje": "✅ Excelente elección! La categoría 'comida' es la más apropiada para este gasto."
-      },
-      "confianza": 0.9
-    }
-  },
-  {
-    "gasto": {
-      "id": 17,
-      "descripcion": "Gasolina del carro",
-      "monto": 80.00,
-      "categoria": "TRANSPORTE",
-      "usuario_id": 1,
-      "fecha": "2025-07-10T15:35:01.000Z",
-      "created_at": "2025-07-10T15:35:01.000Z",
-      "updated_at": "2025-07-10T15:35:01.000Z"
-    },
-    "sugerencia_ml": {
-      "exito": true,
-      "categoria_original": "transporte",
-      "recomendacion": {
-        "categoria_sugerida": "transporte",
-        "categoria_original": "transporte",
-        "coincide": true,
-        "mensaje": "✅ Excelente elección! La categoría 'transporte' es la más apropiada para este gasto."
-      },
-      "confianza": 0.85
-    }
-  }
-]
-```
-
-**Limitaciones:**
-- Máximo 50 gastos por solicitud
-- Si el ML falla para un gasto, se crea el gasto pero con sugerencia de error
-
----
-
-## 🎯 CÓMO FUNCIONA EL MACHINE LEARNING
-
-### Flujo de Trabajo con ML
-
-1. **Endpoint de Solo Sugerencia** (`/ml/sugerencia`):
-   - Envías descripción + categoría elegida
-   - Obtienes sugerencia del modelo SIN crear el gasto
-   - Útil para "preview" antes de guardar
-
-2. **Endpoint de Creación con ML** (`/gastos/con-sugerencia`):
-   - Creas el gasto normalmente
-   - Automáticamente obtienes feedback del ML
-   - El gasto se guarda siempre, independiente del ML
-
-3. **Interpretación de Resultados**:
-   - `coincide: true` = El modelo está de acuerdo con tu elección ✅
-   - `coincide: false` = El modelo sugiere una categoría diferente 💡
-   - `confianza: 0.0-1.0` = Nivel de confianza del modelo
-
-### Ejemplo de Uso en Frontend
+### Ejemplo de Implementación Frontend
 
 ```javascript
-// 1. Obtener sugerencia antes de crear
-const sugerencia = await fetch('/ml/sugerencia', {
-  method: 'POST',
-  body: JSON.stringify({
-    descripcion: "Pizza a domicilio",
-    categoria_usuario: "VARIOS"
-  })
-});
-
-// 2. Mostrar sugerencia al usuario
-if (!sugerencia.recomendacion.coincide) {
-  alert(sugerencia.recomendacion.mensaje);
-  // "💡 Sugerencia: Considera cambiar de 'varios' a 'comida'"
+// PASO 1: Obtener sugerencia del ML
+async function obtenerSugerencia(descripcion, categoriaUsuario) {
+  const response = await fetch('/ml/sugerencia', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      descripcion: descripcion,
+      categoria_usuario: categoriaUsuario.toLowerCase()
+    })
+  });
+  return await response.json();
 }
 
-// 3. Crear gasto con feedback automático
-const resultado = await fetch('/gastos/con-sugerencia', {
-  method: 'POST',
-  body: JSON.stringify({
-    descripcion: "Pizza a domicilio",
-    monto: 25.50,
-    categoria: "COMIDA", // Usuario decidió cambiar
-    usuario_id: 1
-  })
-});
+// PASO 2: Mostrar UI de decisión si es necesario
+async function crearGastoConDecision(datosGasto) {
+  // Obtener sugerencia primero
+  const sugerencia = await obtenerSugerencia(
+    datosGasto.descripcion, 
+    datosGasto.categoria
+  );
+  
+  let aceptaSugerencia = true;
+  let categoriaSugerida = null;
+  
+  // Si el ML sugiere algo diferente, mostrar opciones
+  if (!sugerencia.recomendacion.coincide) {
+    categoriaSugerida = sugerencia.recomendacion.categoria_sugerida.toUpperCase();
+    
+    // Mostrar modal con botones
+    const decision = await mostrarModalDecision({
+      mensaje: sugerencia.recomendacion.mensaje,
+      categoriaOriginal: datosGasto.categoria,
+      categoriaSugerida: categoriaSugerida
+    });
+    
+    aceptaSugerencia = decision.acepta;
+  }
+  
+  // PASO 3: Crear gasto con la decisión
+  const response = await fetch('/gastos/con-decision', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      descripcion: datosGasto.descripcion,
+      monto: datosGasto.monto,
+      categoria_original: datosGasto.categoria,
+      categoria_sugerida: categoriaSugerida,
+      acepta_sugerencia: aceptaSugerencia,
+      usuario_id: datosGasto.usuario_id
+    })
+  });
+  
+  const resultado = await response.json();
+  
+  // PASO 4: Mostrar feedback al usuario
+  if (resultado.decision_usuario === "acepto_sugerencia") {
+    showNotification("✅ Gasto creado con categoría sugerida por IA", "success");
+  } else {
+    showNotification("📝 Gasto creado con tu categoría original", "info");
+  }
+  
+  return resultado;
+}
+
+// Función auxiliar para mostrar modal de decisión
+function mostrarModalDecision({ mensaje, categoriaOriginal, categoriaSugerida }) {
+  return new Promise((resolve) => {
+    // Crear modal con botones
+    const modal = document.createElement('div');
+    modal.innerHTML = `
+      <div class="modal-overlay">
+        <div class="modal-content">
+          <h3>💡 Sugerencia de IA</h3>
+          <p>${mensaje}</p>
+          <div class="buttons">
+            <button id="btn-aceptar" class="btn-success">
+              Aceptar "${categoriaSugerida}"
+            </button>
+            <button id="btn-mantener" class="btn-secondary">
+              Mantener "${categoriaOriginal}"
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Event listeners
+    document.getElementById('btn-aceptar').onclick = () => {
+      document.body.removeChild(modal);
+      resolve({ acepta: true });
+    };
+    
+    document.getElementById('btn-mantener').onclick = () => {
+      document.body.removeChild(modal);
+      resolve({ acepta: false });
+    };
+  });
+}
 ```
 
-### Categorías que Reconoce el Modelo
+### Beneficios de este Flujo
 
-- **COMIDA**: restaurantes, comida rápida, supermercado, bebidas, etc.
-- **TRANSPORTE**: taxi, bus, gasolina, Uber, pasajes, etc.  
-- **VARIOS**: todo lo demás (entretenimiento, ropa, servicios, etc.)
+1. **📊 Analytics**: Puedes saber qué tan seguido los usuarios aceptan las sugerencias del ML
+2. **🎯 UX Mejorada**: El usuario tiene control total sobre la decisión final
+3. **🤖 Aprendizaje**: Los datos de decisiones pueden usarse para mejorar el modelo
+4. **⚡ Performance**: Solo se muestra el modal cuando hay una diferencia real
+5. **🛡️ Fallback**: Si el ML falla, el gasto se crea normalmente
+
+### Casos de Uso
+
+- **Coincidencia**: Usuario elige "COMIDA", ML sugiere "COMIDA" → Se crea directo
+- **Diferencia**: Usuario elige "VARIOS", ML sugiere "COMIDA" → Se muestra modal
+- **Error ML**: Si el servicio ML falla, se crea con la categoría del usuario
+- **Batch Import**: Para múltiples gastos, se pueden procesar automáticamente las sugerencias
+
+8. **Machine Learning**: Los endpoints de ML son opcionales - si fallan, la funcionalidad básica sigue funcionando.
+
+9. **Decisión del Usuario**: El flujo `/gastos/con-decision` permite al usuario decidir si acepta o ignora las sugerencias del ML.
+
+10. **Analytics**: El sistema registra las decisiones del usuario para mejorar el modelo con el tiempo.
+
+11. **Categorías ML**: El modelo reconoce patrones en las descripciones para sugerir la categoría más apropiada.
+
+12. **Confianza**: Un valor alto (>0.8) indica que el modelo está muy seguro de su sugerencia.
+
+13. **Fallback**: Si el ML no está disponible, se mantiene la categoría elegida por el usuario.
+
+14. **Performance**: Las sugerencias son en tiempo real pero pueden tardar 1-3 segundos.
 
 ---
+
+## 📊 ENUMERACIONES
+
+### Categorías de Gastos
+```
+COMIDA
+TRANSPORTE
+VARIOS
+```
+
+### Períodos de Presupuesto
+```
+DIARIO
+SEMANAL
+MENSUAL
+```
+
+---
+
+## ❌ CÓDIGOS DE ERROR COMUNES
+
+### 400 - Bad Request
+```json
+{
+  "detail": "El teléfono debe tener exactamente 10 dígitos numéricos"
+}
+```
+
+### 401 - Unauthorized
+```json
+{
+  "detail": "No se pudieron validar las credenciales"
+}
+```
+
+### 422 - Validation Error
+```json
+{
+  "detail": [
+    {
+      "loc": ["body", "presupuesto"],
+      "msg": "El presupuesto debe ser positivo o cero",
+      "type": "value_error"
+    }
+  ]
+}
+```
+
+### 404 - Not Found
+```json
+{
+  "detail": "Usuario no encontrado"
+}
+```
+
+---
+
 
 ## 📋 NOTAS IMPORTANTES
 
@@ -585,13 +735,3 @@ const resultado = await fetch('/gastos/con-sugerencia', {
 6. **Presupuesto**: El presupuesto es opcional al crear el usuario, pero una vez establecido puede modificarse.
 
 7. **Teléfono**: El campo teléfono es opcional y debe tener exactamente 10 dígitos numéricos.
-
-8. **Machine Learning**: Los endpoints de ML son opcionales - si fallan, la funcionalidad básica sigue funcionando.
-
-9. **Categorías ML**: El modelo reconoce patrones en las descripciones para sugerir la categoría más apropiada.
-
-10. **Confianza**: Un valor alto (>0.8) indica que el modelo está muy seguro de su sugerencia.
-
-11. **Fallback**: Si el ML no está disponible, se mantiene la categoría elegida por el usuario.
-
-12. **Performance**: Las sugerencias son en tiempo real pero pueden tardar 1-3 segundos.
