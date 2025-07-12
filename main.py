@@ -43,7 +43,7 @@ def get_db():
 
 # Nuevo endpoint POST para modificar datos del usuario autenticado
 @app.post("/auth/update-profile", response_model=UsuarioResponse)
-def actualizar_perfil_usuario_post(
+async def actualizar_perfil_usuario_post(
     usuario_update: UsuarioUpdate,
     current_user: Usuario = Depends(get_current_active_user),
     db: Session = Depends(get_db)
@@ -52,14 +52,17 @@ def actualizar_perfil_usuario_post(
     Actualizar los datos del usuario autenticado (POST).
     Solo se modifican los campos enviados en el body.
     """
-    update_data = usuario_update.dict(exclude_unset=True)
-    for field, value in update_data.items():
-        if value is not None:
-            setattr(current_user, field, value)
-    current_user.updated_at = datetime.now()
-    db.commit()
-    db.refresh(current_user)
-    return current_user
+    try:
+        update_data = usuario_update.dict(exclude_unset=True)
+        for field, value in update_data.items():
+            if value is not None:
+                setattr(current_user, field, value)
+        current_user.updated_at = datetime.now()
+        db.commit()
+        db.refresh(current_user)
+        return current_user
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/auth/register", response_model=UsuarioResponse)
 def registrar_usuario(usuario: UsuarioCreate, db: Session = Depends(get_db)):
