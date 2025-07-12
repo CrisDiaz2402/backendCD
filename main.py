@@ -53,14 +53,18 @@ async def actualizar_perfil_usuario_post(
     Solo se modifican los campos enviados en el body.
     """
     try:
+        # Recargar el usuario desde la sesión actual para evitar problemas de persistencia
+        user_db = db.query(Usuario).filter(Usuario.id == current_user.id).first()
+        if not user_db:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado en la sesión actual")
         update_data = usuario_update.dict(exclude_unset=True)
         for field, value in update_data.items():
             if value is not None:
-                setattr(current_user, field, value)
-        current_user.updated_at = datetime.now()
+                setattr(user_db, field, value)
+        user_db.updated_at = datetime.now()
         db.commit()
-        db.refresh(current_user)
-        return current_user
+        db.refresh(user_db)
+        return user_db
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
