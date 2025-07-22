@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 import json
 from typing import List, Optional
+from pydantic import BaseModel
 
 # Importaciones locales
 from database import SessionLocal, engine, Base
@@ -18,7 +19,7 @@ from auth import (
     authenticate_user, create_access_token, create_user,
     get_current_active_user, ACCESS_TOKEN_EXPIRE_MINUTES
 )
-from ml_service import ml_service
+from ml_service import ml_service, capibara_service
 
 # Crear tablas
 Base.metadata.create_all(bind=engine)
@@ -398,3 +399,29 @@ def crear_gasto_con_decision_final(
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+from ml_service import capibara_service
+from fastapi import Body
+
+class CapibaraPredictRequest(BaseModel):
+    bombs_hit: float
+    projectiles_hit: float
+    session_time: float
+
+@app.post("/ml/capibara-predict")
+def predecir_dificultad_capibara(
+    datos: CapibaraPredictRequest = Body(...)
+):
+    """
+    Realiza una predicción de dificultad usando el modelo CapibaraModel.
+    """
+    try:
+        resultado = capibara_service.predecir_dificultad(
+            bombs_hit=datos.bombs_hit,
+            projectiles_hit=datos.projectiles_hit,
+            session_time=datos.session_time
+        )
+        return resultado
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al predecir dificultad con CapibaraModel: {str(e)}")

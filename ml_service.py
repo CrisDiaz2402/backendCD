@@ -273,3 +273,73 @@ class MLService:
 
 # Instancia global del servicio
 ml_service = MLService()
+
+# =============================
+# Servicio para modelo Capibara
+# =============================
+
+class CapibaraService:
+    """Servicio para interactuar con el modelo CapibaraModel en Hugging Face"""
+    def __init__(self):
+        self.client = None
+        self.model_space = "cristiandiaz2403/CapibaraModel"
+        self._initialize_client()
+
+    def _initialize_client(self):
+        try:
+            self.client = Client(self.model_space)
+            logger.info(f"Cliente Capibara inicializado correctamente para {self.model_space}")
+        except Exception as e:
+            logger.error(f"Error al inicializar cliente Capibara: {str(e)}")
+            self.client = None
+
+    def predecir_dificultad(self, bombs_hit: float, projectiles_hit: float, session_time: float) -> dict:
+        """
+        Realiza una predicción de dificultad usando el modelo CapibaraModel.
+        Args:
+            bombs_hit: Bombas acertadas
+            projectiles_hit: Proyectiles acertados
+            session_time: Tiempo de sesión (segundos)
+        Returns:
+            Diccionario con la predicción del modelo o error
+        """
+        if not self.client:
+            logger.warning("Cliente Capibara no disponible, reintentar inicialización")
+            self._initialize_client()
+        if not self.client:
+            return self._respuesta_fallback(bombs_hit, projectiles_hit, session_time)
+        try:
+            result = self.client.predict(
+                bombs_hit=bombs_hit,
+                projectiles_hit=projectiles_hit,
+                session_time=session_time,
+                api_name="/predict"
+            )
+            logger.info(f"Predicción Capibara exitosa: {result}")
+            return {
+                "exito": True,
+                "entrada": {
+                    "bombs_hit": bombs_hit,
+                    "projectiles_hit": projectiles_hit,
+                    "session_time": session_time
+                },
+                "resultado": result
+            }
+        except Exception as e:
+            logger.error(f"Error en predicción Capibara: {str(e)}")
+            return self._respuesta_fallback(bombs_hit, projectiles_hit, session_time, error=str(e))
+
+    def _respuesta_fallback(self, bombs_hit, projectiles_hit, session_time, error=None):
+        return {
+            "exito": False,
+            "error": error or "Servicio Capibara no disponible",
+            "entrada": {
+                "bombs_hit": bombs_hit,
+                "projectiles_hit": projectiles_hit,
+                "session_time": session_time
+            },
+            "resultado": None
+        }
+
+# Instancia global del servicio Capibara
+capibara_service = CapibaraService()
